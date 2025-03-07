@@ -11,9 +11,13 @@ package com.example.watchclientapp.presentation
 //
 
 
+import android.annotation.SuppressLint
+import android.content.pm.PackageManager
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -22,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.wear.compose.material.*
 import androidx.wear.tooling.preview.devices.WearDevices
 import com.example.watchclientapp.presentation.theme.WatchClientAppTheme
@@ -29,25 +34,54 @@ import io.socket.client.IO
 import io.socket.client.Socket
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
+import com.example.watchclientapp.presentation.startRecording
+import com.example.watchclientapp.presentation.stopRecording
 import okhttp3.Dispatcher
 
 
 class MainActivity : ComponentActivity() {
+
+    private val requestPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+            if(!isGranted){
+                // Permission is denied, show a message or close the app
+                Toast.makeText(this, "Permission denied", Toast.LENGTH_SHORT).show()
+                finish()
+            }
+        }
+
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         setTheme(android.R.style.Theme_DeviceDefault)
-
+        checkAndRequestPermission()
         setContent {
             WearApp("Android")
         }
     }
+
+    private fun checkAndRequestPermission() {
+        if (ContextCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            // Permission is already granted, proceed with recording
+
+        } else {
+            // Request the permission
+            requestPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+        }
+    }
 }
+
+var socket: Socket? = null
 
 @Composable
 fun WearApp(greetingName: String) {
     // Socket.IO state
-    var socket by remember { mutableStateOf<Socket?>(null) }
+//    var socket by remember { mutableStateOf<Socket?>(null) }
     var isConnected by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
@@ -118,7 +152,7 @@ private fun connectSocketIO(
                 .setTransports(arrayOf("websocket")) // Use WebSocket transport
                 .build()
 
-            val socketInner = IO.socket("http://10.0.2.2:5001", options)
+            val socketInner = IO.socket("http://192.168.104.227:5001", options)
 
             val channel = Channel<String>()
 
@@ -143,12 +177,12 @@ private fun connectSocketIO(
 
                 CoroutineScope(Dispatchers.Default).launch {
                     channel.send("start recording")
-                    yield()
+
                 }
             }.on("stopRecordingAudio"){
                 CoroutineScope(Dispatchers.Default).launch {
                     channel.send("stop and send recording")
-                    yield()
+
                 }
             }
 
@@ -161,18 +195,24 @@ private fun connectSocketIO(
     }
 }
 
-private fun recordAudio(channel: Channel<String>) = CoroutineScope(Dispatchers.IO).launch {
+@SuppressLint("MissingPermission")
+private fun recordAudio(channel: Channel<String>) = CoroutineScope(Dispatchers.IO).launch  {
     for (message in channel) {
         if(message == "start recording"){
-            println("start recording")
-            delay(1000)
+            CoroutineScope(Dispatchers.IO).launch {
+                socket?.let { startRecording(it) }
+            }
+
         }
 
         if (message == "stop and send recording"){
-            println("stop and send recording");
+            socket?.let { stopRecording(it) }
         }
     }
 }
+
+
+
 
 @Preview(device = WearDevices.SMALL_ROUND, showSystemUi = true)
 @Composable
