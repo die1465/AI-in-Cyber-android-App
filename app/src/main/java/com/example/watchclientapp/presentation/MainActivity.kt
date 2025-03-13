@@ -68,7 +68,7 @@ class MainActivity : ComponentActivity() {
         checkAndRequestPermission()
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MyApp::MyWakelockTag")
-        wakeLock.acquire(10 * 60 * 1000L /*10 minutes*/) // Timeout to prevent battery drain
+        wakeLock.acquire(60 * 60 * 1000L /*1 hour*/) // Timeout to prevent battery drain
         setContent {
             WearApp("Android", this@MainActivity)
         }
@@ -85,6 +85,18 @@ class MainActivity : ComponentActivity() {
         } else {
             // Request the permission
             requestPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+        }
+
+        if (ContextCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.BODY_SENSORS
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            // Permission is already granted, proceed with recording
+
+        } else {
+            // Request the permission
+            requestPermissionLauncher.launch(android.Manifest.permission.BODY_SENSORS)
         }
     }
 

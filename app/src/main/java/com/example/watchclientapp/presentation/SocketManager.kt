@@ -1,6 +1,7 @@
 package com.example.watchclientapp.presentation
 
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.os.Handler
@@ -20,6 +21,8 @@ object SocketManager {
     ) {
 
             var audioRecorderServiceIntent: Intent? = null
+            var sensorRecorderServiceIntent: Intent? = null
+            var sensorServiceStarted: Boolean = false
             val watchServerURL = "http://192.168.104.227:5001"
 
             try {
@@ -57,10 +60,33 @@ object SocketManager {
 
 
                     }
-                }.on("stopRecordingAudio"){
+                }.on("stopRecordingAudio") {
                     // Stop the service on the main thread using the stored Intent
                     Handler(Looper.getMainLooper()).post {
                         context.stopService(audioRecorderServiceIntent)
+
+                    }
+                }.on("StartRecordingSensors"){
+                    // start recording sensors
+                    Handler(Looper.getMainLooper()).post {
+                        if (!sensorServiceStarted) {
+                            sensorRecorderServiceIntent =
+                                Intent(context, SensorRecordingService::class.java)
+
+                            context.startForegroundService(sensorRecorderServiceIntent)
+                            sensorServiceStarted = true
+                        }
+                    }
+                }.on("StopRecordingSensors"){
+                    //stop and recording sensors
+                    // Stop the service on the main thread using the stored Intent
+                    Handler(Looper.getMainLooper()).post {
+                        if(sensorServiceStarted){
+                            context.stopService(sensorRecorderServiceIntent)
+                            sensorServiceStarted = false
+
+                        }
+
 
                     }
                 }
@@ -82,4 +108,7 @@ object SocketManager {
         socket?.disconnect()
         socket = null
     }
+
+
+
 }

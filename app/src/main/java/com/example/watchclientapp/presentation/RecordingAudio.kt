@@ -70,6 +70,8 @@ class AudioRecorderService : Service() {
     }
 
     private fun startForegroundService() {
+
+        createNotificationChannel()
         val notification: Notification = NotificationCompat.Builder(this, "audio_recorder_service")
             .setContentTitle("Audio Recorder Service")
             .setContentText("Recording audio...")
@@ -117,6 +119,7 @@ class AudioRecorderService : Service() {
                     sendAudioBuffer(audioBuffer, bytesRead)
                 }
             }
+            SocketManager.getSocket().emit("DoneStreamingAudioData")
         }
     }
 
