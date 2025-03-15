@@ -22,6 +22,7 @@ object SocketManager {
 
             var audioRecorderServiceIntent: Intent? = null
             var sensorRecorderServiceIntent: Intent? = null
+            var XYPlaneServiceIntent: Intent? = null
             var sensorServiceStarted: Boolean = false
             val watchServerURL = "http://192.168.104.227:5001"
 
@@ -88,6 +89,22 @@ object SocketManager {
                         }
 
 
+                    }
+                }.on("StartEncodingIntoXYPlane"){
+                    Handler(Looper.getMainLooper()).post {
+                        if (!sensorServiceStarted) {
+                            XYPlaneServiceIntent =
+                                Intent(context, XYPlaneEncoderService::class.java)
+
+                            context.startForegroundService(XYPlaneServiceIntent)
+                        }
+                    }
+                }.on("StopEncodingIntoXYPlane"){
+                    Handler(Looper.getMainLooper()).post {
+                        if(sensorServiceStarted){
+                            context.stopService(XYPlaneServiceIntent)
+
+                        }
                     }
                 }
 
