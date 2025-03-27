@@ -69,6 +69,10 @@ class MainActivity : ComponentActivity() {
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MyApp::MyWakelockTag")
         wakeLock.acquire(60 * 60 * 1000L /*1 hour*/) // Timeout to prevent battery drain
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            SocketManager.debug("Uncaught exception in thread Main Acitivity ${thread.name}: ${throwable.message}\n${throwable.printStackTrace()}")
+            throwable.printStackTrace()
+        }
         setContent {
             WearApp("Android", this@MainActivity)
         }

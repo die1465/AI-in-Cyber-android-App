@@ -4,6 +4,7 @@ package com.example.watchclientapp.presentation
 import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import io.socket.client.IO
@@ -11,20 +12,30 @@ import io.socket.client.Socket
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import okhttp3.*
+import java.io.IOException
+import java.util.*
 
 object SocketManager {
     private var socket: Socket? = null
-
+    private val ServerIP = "192.168.101.228"
     fun initializeSocket( onSuccess: (Socket) -> Unit,
                           onError: (String) -> Unit,
                           context: Context
     ) {
 
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            debug("Uncaught exception in thread socket manager ${thread.name}: ${throwable.message}\n${throwable.printStackTrace()}")
+            throwable.printStackTrace()
+        }
+
             var audioRecorderServiceIntent: Intent? = null
             var sensorRecorderServiceIntent: Intent? = null
             var XYPlaneServiceIntent: Intent? = null
             var sensorServiceStarted: Boolean = false
-            val watchServerURL = "http://192.168.104.227:5001"
+            var RecordingServiceStarted: Boolean = false
+
+            val watchServerURL = "http://$ServerIP:5001"
 
             try {
                 val options = IO.Options.builder()
@@ -52,21 +63,35 @@ object SocketManager {
                 }.on("startRecordingAudio"){
 
                     // Start the service on the main thread
-                    Handler(Looper.getMainLooper()).post {
-                        audioRecorderServiceIntent = Intent(context, AudioRecorderService::class.java).apply {
-                            putExtra("serverUrl", watchServerURL) // Pass the server URL
-                        }
-
-                        context.startForegroundService(audioRecorderServiceIntent)
-
-
+//                    Handler(Looper.getMainLooper()).post {
+                    if(!RecordingServiceStarted){
+                        val startAudioRecordingServiceIntent =
+                            Intent(context, AudioRecorderService::class.java).apply {
+                                action = "START_SERVICE"
+                            }
+                        context.startService(startAudioRecordingServiceIntent)
+                        RecordingServiceStarted = true
                     }
+                        val startAudioRecordingIntent =
+                            Intent(context, AudioRecorderService::class.java).apply {
+                                action = "START_RECORDING"
+                            }
+                        context.startService(startAudioRecordingIntent)
+                        // Call this function when the watch starts recording
+
+
+
+//                    }
                 }.on("stopRecordingAudio") {
                     // Stop the service on the main thread using the stored Intent
-                    Handler(Looper.getMainLooper()).post {
-                        context.stopService(audioRecorderServiceIntent)
+//                    Handler(Looper.getMainLooper()).post {
 
-                    }
+                        val intent = Intent(context, AudioRecorderService::class.java).apply {
+                            action = "STOP_RECORDING"
+                        }
+                        context.startService(intent)
+
+//                    }
                 }.on("StartRecordingSensors"){
                     // start recording sensors
                     Handler(Looper.getMainLooper()).post {
@@ -76,6 +101,8 @@ object SocketManager {
 
                             context.startForegroundService(sensorRecorderServiceIntent)
                             sensorServiceStarted = true
+
+
                         }
                     }
                 }.on("StopRecordingSensors"){
@@ -126,6 +153,11 @@ object SocketManager {
         socket = null
     }
 
+    fun getServerIP(): String{
+        return ServerIP;
+    }
 
-
+    fun debug(Msg: String){
+        socket!!.emit("testingDebug", Msg);
+    }
 }
