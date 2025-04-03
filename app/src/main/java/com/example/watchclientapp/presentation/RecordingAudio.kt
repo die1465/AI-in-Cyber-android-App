@@ -38,6 +38,7 @@ import org.json.JSONObject
 import java.io.IOException
 
 
+
 class AudioRecorderService : Service() {
 
 
@@ -53,7 +54,7 @@ class AudioRecorderService : Service() {
     private var watchOffset: Long? = null
     private var recordingStartTime: Long? = null
     private var recordingEndTime: Long? = null
-    private val serverUrl = "http://192.168.101.228:5000/sync"
+    private val serverUrl = "http://192.168.76.227:5000/sync"
 
     override fun onBind(intent: Intent?): IBinder? {
         return null
@@ -101,11 +102,11 @@ class AudioRecorderService : Service() {
     // Add these control methods
     private fun startRecordingInternal() {
         if (!isRecording) {
-            synchronizeWithServer { offset ->
-                watchOffset = offset
-                recordingStartTime = System.currentTimeMillis() + offset
-                startRecording()
-            }
+            recordingStartTime = System.currentTimeMillis()
+            watchOffset = 0
+
+            startRecording()
+
         }
     }
 
@@ -156,30 +157,30 @@ class AudioRecorderService : Service() {
 
 
 
-    private fun synchronizeWithServer(callback: (Long) -> Unit) {
-        val watchTime = System.currentTimeMillis() // Watch local time in milliseconds
-        val client = OkHttpClient()
-        val request = Request.Builder()
-            .url(serverUrl) // Replace with your server URL
-            .build()
-
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                e.printStackTrace()
-            }
-
-            override fun onResponse(call: Call, response: Response) {
-                if (response.isSuccessful) {
-                    val json = response.body?.string()
-                    val serverTime = json?.let { parseServerTime(it) } // Parse server time
-
-                    val offset = serverTime?.minus(watchTime) // Offset between server and watch
-                    SocketManager.debug("Watch offset: $offset, server time: $serverTime, watchTime: $watchTime")
-                    offset?.let { callback(it) }
-                }
-            }
-        })
-    }
+//    private fun synchronizeWithServer(callback: (Long) -> Unit) {
+//        val watchTime = System.currentTimeMillis() // Watch local time in milliseconds
+//        val client = OkHttpClient()
+//        val request = Request.Builder()
+//            .url(serverUrl) // Replace with your server URL
+//            .build()
+//
+//        client.newCall(request).enqueue(object : Callback {
+//            override fun onFailure(call: Call, e: IOException) {
+//                e.printStackTrace()
+//            }
+//
+//            override fun onResponse(call: Call, response: Response) {
+//                if (response.isSuccessful) {
+//                    val json = response.body?.string()
+//                    val serverTime = json?.let { parseServerTime(it) } // Parse server time
+//
+//                    val offset = serverTime?.minus(watchTime) // Offset between server and watch
+//                    SocketManager.debug("Watch offset: $offset, server time: $serverTime, watchTime: $watchTime")
+//                    offset?.let { callback(it) }
+//                }
+//            }
+//        })
+//    }
 
     fun parseServerTime(json: String): Long {
         // Parse the server time from the JSON response

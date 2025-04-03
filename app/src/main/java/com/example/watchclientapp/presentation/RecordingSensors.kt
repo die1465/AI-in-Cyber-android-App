@@ -9,6 +9,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.hardware.Sensor
+import android.hardware.SensorDirectChannel
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
@@ -17,6 +18,8 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.IBinder
+import android.os.MemoryFile
+import android.os.ParcelFileDescriptor
 import android.os.PowerManager
 import android.util.Base64
 import androidx.core.app.NotificationCompat
@@ -31,6 +34,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.atomic.AtomicBoolean
+import java.time.Instant
+import java.util.concurrent.TimeUnit
+
 
 
 class SensorRecordingService : Service(), SensorEventListener {
@@ -38,25 +44,66 @@ class SensorRecordingService : Service(), SensorEventListener {
     private lateinit var sensorManager: SensorManager
     private lateinit var wakeLock: PowerManager.WakeLock
 
-
+    private var isRecording = false
     // Variables to store the latest sensor data
     private var latestAccelData: FloatArray? = null
     private var latestGyroData: FloatArray? = null
     private val hasNewAccelData = AtomicBoolean(false)
     private val hasNewGyroData = AtomicBoolean(false)
+    private var totalMicrosSinceEpoch: Long = 0
+
+
+
+    // SensorDirectChannel variables
+    private var directChannel: SensorDirectChannel? = null
+    private var memoryFile: MemoryFile? = null
+    private var pfd: ParcelFileDescriptor? = null
+
 
     override fun onCreate() {
         super.onCreate()
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         acquireWakeLock()
-        SocketManager.getSocket().emit("testingDebug", "this service is created")
+//        SocketManager.getSocket().emit("testingDebug", "sensor recording service is created")
         startForegroundService()
 
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        SocketManager.getSocket().emit("testingDebug", "this service is started")
-        registerSensors()
+        when (intent?.action) {
+            "START_SERVICE" -> {
+                if(!isRecording) {
+                    startForegroundService() // Just initialize but don't start recording yet
+                    SocketManager.debug("Service initialized, awaiting recording commands")
+                }
+            }
+            "START_RECORDING" -> {
+                if (!isRecording) {
+                    registerSensors()
+                    isRecording = true
+                    SocketManager.debug("Recording started")
+                } else {
+                    SocketManager.debug("Already recording, ignoring start command")
+                }
+            }
+            "STOP_RECORDING" -> {
+                if (isRecording) {
+                    unregisterSensors()
+                    isRecording = false
+                    SocketManager.debug("Recording stopped")
+                } else {
+                    SocketManager.debug("Not currently recording, ignoring stop command")
+                }
+            }
+            "STOP_SERVICE" -> {
+                if (isRecording) {
+                    unregisterSensors()
+                    isRecording = false
+                }
+
+//                SocketManager.debug("Service stopping completely")
+            }
+        }
         return START_STICKY
     }
 
@@ -103,7 +150,7 @@ class SensorRecordingService : Service(), SensorEventListener {
             .build()
 
         startForeground(2, notification)
-        SocketManager.getSocket().emit("testingDebug", "the foreground service is started")
+//        SocketManager.getSocket().emit("testingDebug", "sensor the foreground service is started")
 
     }
 
@@ -111,20 +158,21 @@ class SensorRecordingService : Service(), SensorEventListener {
 
     private fun registerSensors() {
 
-//        SocketManager.getSocket().emit("testingDebug", "entered registerSensors function")
+        val desiredHZ = 10_000  // 100Hz = 10ms per sample
         val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         val gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
 
         if (accelerometer == null || gyroscope == null) {
-            SocketManager.getSocket().emit("testingDebug", "the sensors are null")
+            SocketManager.debug("the sensors are null")
             stopSelf() // Stop the service if sensors are not available
             return
         }
 
-        sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_FASTEST)
-        sensorManager.registerListener(this, gyroscope, SensorManager.SENSOR_DELAY_FASTEST)
+        sensorManager.registerListener(this, accelerometer, desiredHZ, 0)
+        sensorManager.registerListener(this, gyroscope, desiredHZ, 0)
 
-//        SocketManager.getSocket().emit("testingDebug", "the sensors are registered")
+        SocketManager.debug("the sensors are registered, sampling rate \naccel ${accelerometer.minDelay}" +
+                "\n gyro ${gyroscope.minDelay}")
 
     }
 
@@ -134,15 +182,14 @@ class SensorRecordingService : Service(), SensorEventListener {
 
     override fun onSensorChanged(event: SensorEvent?) {
         event?.let {
-            when (event.sensor.type) {
-                Sensor.TYPE_ACCELEROMETER -> {
-                    latestAccelData = event.values
-                    hasNewAccelData.set(true)
-                }
-                Sensor.TYPE_GYROSCOPE -> {
-                    latestGyroData = event.values
-                    hasNewGyroData.set(true)
-                }
+            if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
+                latestAccelData = event.values
+                hasNewAccelData.set(true)
+            }
+
+            if(event.sensor.type == Sensor.TYPE_GYROSCOPE){
+                latestGyroData = event.values
+                hasNewGyroData.set(true)
             }
 
             // Check if both sensors have new data
@@ -155,6 +202,8 @@ class SensorRecordingService : Service(), SensorEventListener {
     }
 
     private fun sendSensorData() {
+
+
         val timestamp = System.currentTimeMillis()
         val accelX = latestAccelData?.get(0) ?: 0f
         val accelY = latestAccelData?.get(1) ?: 0f
@@ -165,7 +214,10 @@ class SensorRecordingService : Service(), SensorEventListener {
 
         val data = "$timestamp,$accelX,$accelY,$accelZ,$gyroX,$gyroY,$gyroZ"
         SocketManager.getSocket().emit("SensorStream",data)
+
+
     }
+
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
         // Handle accuracy changes if needed

@@ -18,7 +18,17 @@ import java.util.*
 
 object SocketManager {
     private var socket: Socket? = null
-    private val ServerIP = "192.168.101.228"
+    private val ServerIP = "192.168.41.227"
+
+
+    // Move these outside the initializeSocket method so they persist
+    private var audioRecorderServiceIntent: Intent? = null
+    private var sensorRecorderServiceIntent: Intent? = null
+    private var XYPlaneServiceIntent: Intent? = null
+    private var sensorServiceStarted = false
+    private var RecordingServiceStarted = false
+
+    
     fun initializeSocket( onSuccess: (Socket) -> Unit,
                           onError: (String) -> Unit,
                           context: Context
@@ -29,13 +39,12 @@ object SocketManager {
             throwable.printStackTrace()
         }
 
-            var audioRecorderServiceIntent: Intent? = null
-            var sensorRecorderServiceIntent: Intent? = null
-            var XYPlaneServiceIntent: Intent? = null
-            var sensorServiceStarted: Boolean = false
-            var RecordingServiceStarted: Boolean = false
 
-            val watchServerURL = "http://$ServerIP:5001"
+
+
+
+
+        val watchServerURL = "http://$ServerIP:5001"
 
             try {
                 val options = IO.Options.builder()
@@ -63,25 +72,26 @@ object SocketManager {
                 }.on("startRecordingAudio"){
 
                     // Start the service on the main thread
-//                    Handler(Looper.getMainLooper()).post {
-                    if(!RecordingServiceStarted){
+                    if (!RecordingServiceStarted) {
+
                         val startAudioRecordingServiceIntent =
                             Intent(context, AudioRecorderService::class.java).apply {
                                 action = "START_SERVICE"
                             }
                         context.startService(startAudioRecordingServiceIntent)
                         RecordingServiceStarted = true
+
                     }
-                        val startAudioRecordingIntent =
-                            Intent(context, AudioRecorderService::class.java).apply {
-                                action = "START_RECORDING"
-                            }
-                        context.startService(startAudioRecordingIntent)
-                        // Call this function when the watch starts recording
+
+                    // Just tell the existing service to start recording
+                    val recordIntent = Intent(context, SensorRecordingService::class.java).apply {
+                        action = "START_RECORDING"
+                    }
+                    context.startService(recordIntent)
+                    debug("Sent start recording command to service")
 
 
 
-//                    }
                 }.on("stopRecordingAudio") {
                     // Stop the service on the main thread using the stored Intent
 //                    Handler(Looper.getMainLooper()).post {
@@ -93,30 +103,34 @@ object SocketManager {
 
 //                    }
                 }.on("StartRecordingSensors"){
-                    // start recording sensors
-                    Handler(Looper.getMainLooper()).post {
+                    // start recording sensor
+//                    debug("got start Recording sensors")
                         if (!sensorServiceStarted) {
-                            sensorRecorderServiceIntent =
-                                Intent(context, SensorRecordingService::class.java)
-
-                            context.startForegroundService(sensorRecorderServiceIntent)
+                            initializeSensorService(context)
                             sensorServiceStarted = true
-
-
                         }
+
+                    val intent = Intent(context, SensorRecordingService::class.java).apply {
+                        action = "START_RECORDING"
                     }
+                    context.startService(intent)
+
+
                 }.on("StopRecordingSensors"){
                     //stop and recording sensors
                     // Stop the service on the main thread using the stored Intent
-                    Handler(Looper.getMainLooper()).post {
-                        if(sensorServiceStarted){
-                            context.stopService(sensorRecorderServiceIntent)
-                            sensorServiceStarted = false
-
+                    if (sensorServiceStarted) {
+                        val stopRecordIntent = Intent(context, SensorRecordingService::class.java).apply {
+                            action = "STOP_RECORDING"
                         }
-
-
+                        context.startService(stopRecordIntent)
+//                        debug("Sent stop recording command to service")
                     }
+
+
+
+
+
                 }.on("StartEncodingIntoXYPlane"){
                     Handler(Looper.getMainLooper()).post {
                         if (!sensorServiceStarted) {
@@ -159,5 +173,16 @@ object SocketManager {
 
     fun debug(Msg: String){
         socket!!.emit("testingDebug", Msg);
+    }
+
+    // Initialize service only once at appropriate time (app start or connection)
+    private fun initializeSensorService(context : Context
+                                ) {
+        val sensorService = Intent(context, SensorRecordingService::class.java).apply {
+            action = "START_SERVICE"
+        }
+        context.startForegroundService(sensorService)
+        sensorServiceStarted = true
+//        debug("Sensor service initialized")
     }
 }
