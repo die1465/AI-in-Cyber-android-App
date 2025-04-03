@@ -84,7 +84,7 @@ object SocketManager {
                     }
 
                     // Just tell the existing service to start recording
-                    val recordIntent = Intent(context, SensorRecordingService::class.java).apply {
+                    val recordIntent = Intent(context, AudioRecorderService::class.java).apply {
                         action = "START_RECORDING"
                     }
                     context.startService(recordIntent)
