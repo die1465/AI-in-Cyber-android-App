@@ -26,6 +26,7 @@ object SocketManager {
     private var sensorRecorderServiceIntent: Intent? = null
     private var XYPlaneServiceIntent: Intent? = null
     private var sensorServiceStarted = false
+    private var linearAccelServiceStarted = false
     private var RecordingServiceStarted = false
 
     
@@ -44,7 +45,7 @@ object SocketManager {
 
 
 
-        val watchServerURL = "http://$ServerIP:5001"
+            val watchServerURL = "http://$ServerIP:5001"
 
             try {
                 val options = IO.Options.builder()
@@ -105,10 +106,10 @@ object SocketManager {
                 }.on("StartRecordingSensors"){
                     // start recording sensor
 //                    debug("got start Recording sensors")
-                        if (!sensorServiceStarted) {
-                            initializeSensorService(context)
-                            sensorServiceStarted = true
-                        }
+                    if (!sensorServiceStarted) {
+                        initializeSensorService(context)
+                        sensorServiceStarted = true
+                    }
 
                     val intent = Intent(context, SensorRecordingService::class.java).apply {
                         action = "START_RECORDING"
@@ -131,21 +132,23 @@ object SocketManager {
 
 
 
-                }.on("StartEncodingIntoXYPlane"){
-                    Handler(Looper.getMainLooper()).post {
-                        if (!sensorServiceStarted) {
-                            XYPlaneServiceIntent =
-                                Intent(context, XYPlaneEncoderService::class.java)
-
-                            context.startForegroundService(XYPlaneServiceIntent)
-                        }
+                }.on("StartRecordingLinearAcceleration"){
+                    if (!linearAccelServiceStarted) {
+                        initializeLinearAccelSensorService(context)
+                        linearAccelServiceStarted = true
                     }
-                }.on("StopEncodingIntoXYPlane"){
-                    Handler(Looper.getMainLooper()).post {
-                        if(sensorServiceStarted){
-                            context.stopService(XYPlaneServiceIntent)
 
+                    val StartIntent = Intent(context, LinearAccelerationRecordingService::class.java).apply {
+                        action = "START_RECORDING"
+                    }
+                    context.startService(StartIntent)
+                }.on("StopRecordingLinearAcceleration"){
+                    if (linearAccelServiceStarted) {
+                        val stopRecordIntent = Intent(context, LinearAccelerationRecordingService::class.java).apply {
+                            action = "STOP_RECORDING"
                         }
+                        context.startService(stopRecordIntent)
+//                        debug("Sent stop recording command to service")
                     }
                 }
 
@@ -184,5 +187,17 @@ object SocketManager {
         context.startForegroundService(sensorService)
         sensorServiceStarted = true
 //        debug("Sensor service initialized")
+    }
+
+
+    // Initialize service only once at appropriate time (app start or connection)
+    private fun initializeLinearAccelSensorService(context : Context
+    ) {
+        val sensorService = Intent(context, LinearAccelerationRecordingService::class.java).apply {
+            action = "START_SERVICE"
+        }
+        context.startForegroundService(sensorService)
+        sensorServiceStarted = true
+        debug("Sensor service initialized")
     }
 }

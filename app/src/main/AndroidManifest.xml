@@ -39,6 +39,11 @@
             android:name=".presentation.SensorRecordingService"
             android:enabled="true"
             android:exported="false" />
+
+        <service
+            android:name=".presentation.LinearAccelerationRecordingService"
+            android:enabled="true"
+            android:exported="false" />
         <activity
             android:name=".presentation.MainActivity"
             android:exported="true"
