@@ -118,11 +118,16 @@ class MainActivity : ComponentActivity() {
 
 var socket: Socket? = null
 
+enum class ConnectionState {
+    Disconnected,
+    Connecting,
+    Connected
+}
+
 @Composable
 fun WearApp(greetingName: String, context: Context) {
-    // Socket.IO state
-//    var socket by remember { mutableStateOf<Socket?>(null) }
-    var isConnected by remember { mutableStateOf(false) }
+    // track where we are in the connect/disconnect flow
+    var connectionState by remember { mutableStateOf(ConnectionState.Disconnected) }
     val coroutineScope = rememberCoroutineScope()
 
     WatchClientAppTheme {
@@ -138,46 +143,61 @@ fun WearApp(greetingName: String, context: Context) {
                 verticalArrangement = Arrangement.Center,
                 modifier = Modifier.fillMaxSize()
             ) {
-
-
-                // Connect Button
-                Button(
-                    onClick = {
-                        coroutineScope.launch {
-                            SocketManager.initializeSocket(
-                                onSuccess = { s ->
-                                    socket = s
-                                    isConnected = true
-                                },
-                                onError = { error ->
-                                    println("Connection error: $error")
-
-                                },
-                                context
-                            )
+                when (connectionState) {
+                    ConnectionState.Disconnected -> {
+                        Button(
+                            onClick = {
+                                // flip into “connecting” immediately
+                                connectionState = ConnectionState.Connecting
+                                coroutineScope.launch {
+                                    SocketManager.initializeSocket(
+                                        onSuccess = { s ->
+                                            socket = s
+                                            connectionState = ConnectionState.Connected
+                                        },
+                                        onError = { error ->
+                                            println("Connection error: $error")
+                                            // go back to “disconnected” so they can retry
+                                            connectionState = ConnectionState.Disconnected
+                                        },
+                                        context = context
+                                    )
+                                }
+                            },
+                            // only enabled if we're fully disconnected
+                            enabled = true
+                        ) {
+                            Text("Connect")
                         }
-                    },
-                    enabled = !isConnected
-                ) {
-                    Text("Connect")
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Disconnect Button
-                Button(
-                    onClick = {
-                        SocketManager.disconnectSocket()
-                        isConnected = false
-                    },
-                    enabled = isConnected
-                ) {
-                    Text("Disconnect")
+                    }
+                    ConnectionState.Connecting -> {
+                        // you can swap the button out for a spinner, or just disable it
+                        Button(
+                            onClick = { /* no-op */ },
+                            enabled = false
+                        ) {
+                            // or replace this with CircularProgressIndicator(...)
+                            Text("Connecting…")
+                        }
+                    }
+                    ConnectionState.Connected -> {
+                        Button(
+                            onClick = {
+                                SocketManager.disconnectSocket()
+                                socket = null
+                                connectionState = ConnectionState.Disconnected
+                            },
+                            enabled = true
+                        ) {
+                            Text("Disconnect")
+                        }
+                    }
                 }
             }
         }
     }
 }
+
 // Function to connect to Socket.IO
 //@SuppressLint("MissingPermission")
 //private fun connectSocketIO(
