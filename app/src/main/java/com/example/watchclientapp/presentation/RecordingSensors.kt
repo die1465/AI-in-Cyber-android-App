@@ -51,6 +51,7 @@ class SensorRecordingService : Service(), SensorEventListener {
     private val hasNewAccelData = AtomicBoolean(false)
     private val hasNewGyroData = AtomicBoolean(false)
     private var totalMicrosSinceEpoch: Long = 0
+    private var SocketStreamEventName : String = ""
 
 
 
@@ -102,6 +103,15 @@ class SensorRecordingService : Service(), SensorEventListener {
                 }
 
 //                SocketManager.debug("Service stopping completely")
+            }
+        }
+
+        when(intent?.getStringExtra("SocketEventName") ){
+            "KeystrokeSensorStream" -> {
+                SocketStreamEventName = "KeystrokeSensorStream"
+            }
+            "SensorStream" -> {
+                SocketStreamEventName = "SensorStream"
             }
         }
         return START_STICKY
@@ -194,14 +204,14 @@ class SensorRecordingService : Service(), SensorEventListener {
 
             // Check if both sensors have new data
             if (hasNewAccelData.get() || hasNewGyroData.get()) {
-                sendSensorData()
+                sendSensorData(SocketStreamEventName)
                 hasNewAccelData.set(false)
                 hasNewGyroData.set(false)
             }
         }
     }
 
-    private fun sendSensorData() {
+    private fun sendSensorData(eventName : String = "SensorStream") {
 
 
         val timestamp = System.currentTimeMillis()
@@ -213,7 +223,7 @@ class SensorRecordingService : Service(), SensorEventListener {
         val gyroZ = latestGyroData?.get(2) ?: 0f
 
         val data = "$timestamp,$accelX,$accelY,$accelZ,$gyroX,$gyroY,$gyroZ"
-        SocketManager.getSocket().emit("SensorStream",data)
+        SocketManager.getSocket().emit(eventName,data)
 
 
     }

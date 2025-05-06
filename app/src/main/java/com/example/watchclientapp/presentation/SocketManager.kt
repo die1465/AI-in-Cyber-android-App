@@ -18,7 +18,7 @@ import java.util.*
 
 object SocketManager {
     private var socket: Socket? = null
-    private val ServerIP = "192.168.41.227"
+    private val ServerIP = "192.168.140.8"
 
 
     // Move these outside the initializeSocket method so they persist
@@ -89,6 +89,8 @@ object SocketManager {
                         action = "START_RECORDING"
                     }
                     context.startService(recordIntent)
+
+                    StartRecordingSensors(context, "KeystrokeSensorStream")
                     debug("Sent start recording command to service")
 
 
@@ -102,32 +104,20 @@ object SocketManager {
                         }
                         context.startService(intent)
 
+                        StopRecordingSensors(context)
+
 //                    }
                 }.on("StartRecordingSensors"){
                     // start recording sensor
 //                    debug("got start Recording sensors")
-                    if (!sensorServiceStarted) {
-                        initializeSensorService(context)
-                        sensorServiceStarted = true
-                    }
-
-                    val intent = Intent(context, SensorRecordingService::class.java).apply {
-                        action = "START_RECORDING"
-                    }
-                    context.startService(intent)
+                    StartRecordingSensors(context, "SensorStream")
 
 
                 }.on("StopRecordingSensors"){
                     //stop and recording sensors
                     // Stop the service on the main thread using the stored Intent
-                    if (sensorServiceStarted) {
-                        val stopRecordIntent = Intent(context, SensorRecordingService::class.java).apply {
-                            action = "STOP_RECORDING"
-                        }
-                        context.startService(stopRecordIntent)
-//                        debug("Sent stop recording command to service")
-                    }
 
+                    StopRecordingSensors(context)
 
 
 
@@ -199,5 +189,28 @@ object SocketManager {
         context.startForegroundService(sensorService)
         sensorServiceStarted = true
         debug("Sensor service initialized")
+    }
+
+    private fun StartRecordingSensors(context: Context, SocketSensorEventName: String){
+        if (!sensorServiceStarted) {
+            initializeSensorService(context)
+            sensorServiceStarted = true
+        }
+
+        val intent = Intent(context, SensorRecordingService::class.java).apply {
+            action = "START_RECORDING"
+            putExtra("SocketEventName", SocketSensorEventName)
+        }
+        context.startService(intent)
+    }
+
+    private fun StopRecordingSensors(context: Context){
+        if (sensorServiceStarted) {
+            val stopRecordIntent = Intent(context, SensorRecordingService::class.java).apply {
+                action = "STOP_RECORDING"
+            }
+            context.startService(stopRecordIntent)
+//                        debug("Sent stop recording command to service")
+        }
     }
 }
