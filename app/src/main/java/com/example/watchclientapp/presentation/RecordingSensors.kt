@@ -55,6 +55,7 @@ class SensorRecordingService : Service(), SensorEventListener {
 
 
 
+
     // SensorDirectChannel variables
     private var directChannel: SensorDirectChannel? = null
     private var memoryFile: MemoryFile? = null
@@ -84,7 +85,7 @@ class SensorRecordingService : Service(), SensorEventListener {
                     isRecording = true
                     SocketManager.debug("Recording started")
                 } else {
-                    SocketManager.debug("Already recording, ignoring start command")
+                    SocketManager.debug("Already recording sensors, ignoring start command")
                 }
             }
             "STOP_RECORDING" -> {
@@ -191,23 +192,36 @@ class SensorRecordingService : Service(), SensorEventListener {
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
+
+//        val timestamp = System.currentTimeMillis()
+
         event?.let {
             if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
-                latestAccelData = event.values
-                hasNewAccelData.set(true)
+//                latestAccelData = event.values
+//                hasNewAccelData.set(true)
+                val timestamp = NtpTimeProvider.nowUs()
+                val (x, y, z) = event.values
+                // sensor type 10 for accel
+                val data = "10,$timestamp,$x,$y,$z"
+                SocketManager.getSocket().emit(SocketStreamEventName, data)
             }
 
             if(event.sensor.type == Sensor.TYPE_GYROSCOPE){
-                latestGyroData = event.values
-                hasNewGyroData.set(true)
+                val timestamp = NtpTimeProvider.nowUs()
+                val (x, y, z) = event.values
+                // sensor type 4 for gyro
+                val data = "4,$timestamp,$x,$y,$z"
+                SocketManager.getSocket().emit(SocketStreamEventName, data)
+//                latestGyroData = event.values
+//                hasNewGyroData.set(true)
             }
 
             // Check if both sensors have new data
-            if (hasNewAccelData.get() || hasNewGyroData.get()) {
-                sendSensorData(SocketStreamEventName)
-                hasNewAccelData.set(false)
-                hasNewGyroData.set(false)
-            }
+//            if (hasNewAccelData.get() || hasNewGyroData.get()) {
+//                sendSensorData(SocketStreamEventName)
+//                hasNewAccelData.set(false)
+//                hasNewGyroData.set(false)
+//            }
         }
     }
 

@@ -13,12 +13,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import okhttp3.*
+import org.json.JSONObject
 import java.io.IOException
 import java.util.*
 
 object SocketManager {
     private var socket: Socket? = null
-    private val ServerIP = "192.168.140.8"
+     private val ServerIP = "192.168.71.8"
+    private val ServerPort = "5001"
 
 
     // Move these outside the initializeSocket method so they persist
@@ -26,6 +28,8 @@ object SocketManager {
     private var sensorRecorderServiceIntent: Intent? = null
     private var XYPlaneServiceIntent: Intent? = null
     private var sensorServiceStarted = false
+    private var scrollingSensorServiceStarted = false
+
     private var linearAccelServiceStarted = false
     private var RecordingServiceStarted = false
 
@@ -45,7 +49,7 @@ object SocketManager {
 
 
 
-            val watchServerURL = "http://$ServerIP:5001"
+            val watchServerURL = "http://$ServerIP:$ServerPort"
 
             try {
                 val options = IO.Options.builder()
@@ -70,7 +74,12 @@ object SocketManager {
                 }.on("message") { args ->
                     val message = args[0].toString()
                     println("Received message: $message")
-                }.on("startRecordingAudio"){
+                }.on("startRecordingAudio"){ args ->
+                    // start recording sensor
+//                    debug("got start Recording audio ${ args[0]}")
+                    val data = args[0] as JSONObject
+                    val streamName = data.getString("endpoint")
+                    val finishedRecordingSocketEventName = data.getString("WhenDoneRecording")
 
                     // Start the service on the main thread
                     if (!RecordingServiceStarted) {
@@ -78,6 +87,8 @@ object SocketManager {
                         val startAudioRecordingServiceIntent =
                             Intent(context, AudioRecorderService::class.java).apply {
                                 action = "START_SERVICE"
+                                putExtra("APIEndpointName", streamName)
+                                putExtra("WhenDoneRecording", finishedRecordingSocketEventName)
                             }
                         context.startService(startAudioRecordingServiceIntent)
                         RecordingServiceStarted = true
@@ -90,8 +101,8 @@ object SocketManager {
                     }
                     context.startService(recordIntent)
 
-                    StartRecordingSensors(context, "KeystrokeSensorStream")
-                    debug("Sent start recording command to service")
+//                    StartRecordingSensors(context, "KeystrokeSensorStream")
+//                    debug("Sent start recording command to service")
 
 
 
@@ -104,13 +115,36 @@ object SocketManager {
                         }
                         context.startService(intent)
 
-                        StopRecordingSensors(context)
+//                        StopRecordingSensors(context)
 
 //                    }
-                }.on("StartRecordingSensors"){
+                }
+//                    .on("StartRecordingSensorsForKeystrokes"){ args ->
+//                    // start recording sensor
+////                    debug("got start Recording sensors")
+//                    val streamName = args[0].toString()
+//
+//                    StartRecordingSensors(context, streamName)
+//
+//
+//
+//                }.on("StopRecordingSensorsForKeystrokes"){
+//                    //stop and recording sensors
+//                    // Stop the service on the main thread using the stored Intent
+//
+//                    StopRecordingSensors(context)
+//
+//
+//
+//
+//                }
+                    .on("StartRecordingSensors"){ args ->
                     // start recording sensor
 //                    debug("got start Recording sensors")
-                    StartRecordingSensors(context, "SensorStream")
+                    val streamName = args[0].toString()
+
+                        StartRecordingSensors(context, streamName)
+
 
 
                 }.on("StopRecordingSensors"){
@@ -164,6 +198,10 @@ object SocketManager {
         return ServerIP;
     }
 
+    fun getServerPort(): String{
+        return ServerPort;
+    }
+
     fun debug(Msg: String){
         socket!!.emit("testingDebug", Msg);
     }
@@ -197,11 +235,13 @@ object SocketManager {
             sensorServiceStarted = true
         }
 
+
         val intent = Intent(context, SensorRecordingService::class.java).apply {
             action = "START_RECORDING"
             putExtra("SocketEventName", SocketSensorEventName)
         }
         context.startService(intent)
+
     }
 
     private fun StopRecordingSensors(context: Context){
@@ -213,4 +253,5 @@ object SocketManager {
 //                        debug("Sent stop recording command to service")
         }
     }
+
 }

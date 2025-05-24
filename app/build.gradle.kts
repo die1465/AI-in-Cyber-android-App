@@ -63,5 +63,6 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.8.0")
     implementation("androidx.fragment:fragment-ktx:1.6.1")
     implementation("org.json:json:20231013") // For JSON handling
+    implementation("com.lyft.kronos:kronos-android:0.0.1-alpha11")
 
 }

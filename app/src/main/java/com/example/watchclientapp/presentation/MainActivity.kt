@@ -66,6 +66,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setTheme(android.R.style.Theme_DeviceDefault)
         checkAndRequestPermission()
+
+        NtpTimeProvider.initialize(this)
+
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MyApp::MyWakelockTag")
         wakeLock.acquire(60 * 60 * 1000L /*1 hour*/) // Timeout to prevent battery drain
