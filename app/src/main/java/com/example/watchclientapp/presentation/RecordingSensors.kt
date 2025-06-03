@@ -33,6 +33,15 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
+import java.io.BufferedWriter
+import java.io.File
+import java.io.FileWriter
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.time.Instant
 import java.util.concurrent.TimeUnit
@@ -51,8 +60,9 @@ class SensorRecordingService : Service(), SensorEventListener {
     private val hasNewAccelData = AtomicBoolean(false)
     private val hasNewGyroData = AtomicBoolean(false)
     private var totalMicrosSinceEpoch: Long = 0
-    private var SocketStreamEventName : String = ""
-
+    private lateinit var sensorDataFile: File
+    private lateinit var fileWriter: BufferedWriter
+    private var _postAPIEndpoint = ""
 
 
 
@@ -72,15 +82,22 @@ class SensorRecordingService : Service(), SensorEventListener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        intent?.getStringExtra("APIEndpoint")?.let { endpoint ->
+            _postAPIEndpoint = "http://${SocketManager.getServerIP()}:${SocketManager.getServerPort()}/$endpoint"
+        }
         when (intent?.action) {
             "START_SERVICE" -> {
                 if(!isRecording) {
-                    startForegroundService() // Just initialize but don't start recording yet
+//                    startForegroundService() // Just initialize but don't start recording yet
                     SocketManager.debug("Service initialized, awaiting recording commands")
                 }
             }
             "START_RECORDING" -> {
                 if (!isRecording) {
+                    val filename = "sensor_data_${System.currentTimeMillis()}.csv"
+                    sensorDataFile = File(filesDir, filename)
+                    fileWriter = BufferedWriter(FileWriter(sensorDataFile, true)) // append mode
+
                     registerSensors()
                     isRecording = true
                     SocketManager.debug("Recording started")
@@ -92,6 +109,14 @@ class SensorRecordingService : Service(), SensorEventListener {
                 if (isRecording) {
                     unregisterSensors()
                     isRecording = false
+                    try {
+                        fileWriter.flush()
+                        fileWriter.close()
+                        sendSensorFileToServer(sensorDataFile)
+                    } catch (e: IOException) {
+                        e.printStackTrace()
+                        SocketManager.debug("File close or send failed: ${e.message}")
+                    }
                     SocketManager.debug("Recording stopped")
                 } else {
                     SocketManager.debug("Not currently recording, ignoring stop command")
@@ -107,14 +132,7 @@ class SensorRecordingService : Service(), SensorEventListener {
             }
         }
 
-        when(intent?.getStringExtra("SocketEventName") ){
-            "KeystrokeSensorStream" -> {
-                SocketStreamEventName = "KeystrokeSensorStream"
-            }
-            "SensorStream" -> {
-                SocketStreamEventName = "SensorStream"
-            }
-        }
+        SocketManager.debug("socket event name for sensors: $_postAPIEndpoint")
         return START_STICKY
     }
 
@@ -199,25 +217,39 @@ class SensorRecordingService : Service(), SensorEventListener {
             if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
 //                latestAccelData = event.values
 //                hasNewAccelData.set(true)
-                val timestamp = NtpTimeProvider.nowUs()
+                val timestamp = NtpTimeProvider.nowMs()
                 val (x, y, z) = event.values
                 // sensor type 10 for accel
-                val data = "10,$timestamp,$x,$y,$z"
-                SocketManager.getSocket().emit(SocketStreamEventName, data)
+                val line = "10,$timestamp,$x,$y,$z\n"
+                try {
+                    fileWriter.write(line)
+                } catch (e: IOException) {
+                    e.printStackTrace()
+                    SocketManager.debug("File write failed: ${e.message}")
+                }
+
+
+
             }
 
             if(event.sensor.type == Sensor.TYPE_GYROSCOPE){
-                val timestamp = NtpTimeProvider.nowUs()
+                val timestamp = NtpTimeProvider.nowMs()
                 val (x, y, z) = event.values
                 // sensor type 4 for gyro
-                val data = "4,$timestamp,$x,$y,$z"
-                SocketManager.getSocket().emit(SocketStreamEventName, data)
+                val line = "4,$timestamp,$x,$y,$z\n"
+                try {
+                    fileWriter.write(line)
+                } catch (e: IOException) {
+                    e.printStackTrace()
+                    SocketManager.debug("File write failed: ${e.message}")
+                }
+
 //                latestGyroData = event.values
 //                hasNewGyroData.set(true)
             }
 
             // Check if both sensors have new data
-//            if (hasNewAccelData.get() || hasNewGyroData.get()) {
+//            if (hasNewAccelData.get() && hasNewGyroData.get()) {
 //                sendSensorData(SocketStreamEventName)
 //                hasNewAccelData.set(false)
 //                hasNewGyroData.set(false)
@@ -240,6 +272,41 @@ class SensorRecordingService : Service(), SensorEventListener {
         SocketManager.getSocket().emit(eventName,data)
 
 
+    }
+    private fun sendSensorFileToServer(file: File) {
+        val client = OkHttpClient()
+        val mediaType = "text/csv".toMediaType()
+        val requestBody = file.asRequestBody(mediaType)
+
+        val multipartBody = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file", file.name, requestBody)
+            .build()
+
+        val request = Request.Builder()
+            .url(_postAPIEndpoint)
+            .post(multipartBody)
+            .build()
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    SocketManager.debug("Sensor file uploaded successfully")
+                    val deleted = file.delete()
+                    if (deleted) {
+                        SocketManager.debug("File deleted: ${file.name}")
+                    } else {
+                        SocketManager.debug("Failed to delete file: ${file.name}")
+                    }
+                } else {
+                    SocketManager.debug("Upload failed: ${response.code}")
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                SocketManager.debug("Upload exception: ${e.message}")
+            }
+        }
     }
 
 

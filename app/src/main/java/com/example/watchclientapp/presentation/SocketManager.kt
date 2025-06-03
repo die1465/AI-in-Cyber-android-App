@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import androidx.core.content.ContextCompat
 import io.socket.client.IO
 import io.socket.client.Socket
 import kotlinx.coroutines.CoroutineScope
@@ -16,29 +17,32 @@ import okhttp3.*
 import org.json.JSONObject
 import java.io.IOException
 import java.util.*
+import java.util.concurrent.atomic.AtomicBoolean
 
 object SocketManager {
     private var socket: Socket? = null
-     private val ServerIP = "192.168.71.8"
+    private val ServerIP = "192.168.183.8"
     private val ServerPort = "5001"
+    private val watchServerURL = "http://$ServerIP:$ServerPort"
 
+    private val sensorServiceStarted = AtomicBoolean(false)
+    private val linearAccelServiceStarted = AtomicBoolean(false)
+    private val recordingServiceStarted = AtomicBoolean(false)
+    private val isRecording = AtomicBoolean(false)
 
-    // Move these outside the initializeSocket method so they persist
-    private var audioRecorderServiceIntent: Intent? = null
-    private var sensorRecorderServiceIntent: Intent? = null
-    private var XYPlaneServiceIntent: Intent? = null
-    private var sensorServiceStarted = false
-    private var scrollingSensorServiceStarted = false
+    private fun runOnMainThread(block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            block()
+        } else {
+            Handler(Looper.getMainLooper()).post { block() }
+        }
+    }
 
-    private var linearAccelServiceStarted = false
-    private var RecordingServiceStarted = false
-
-    
-    fun initializeSocket( onSuccess: (Socket) -> Unit,
-                          onError: (String) -> Unit,
-                          context: Context
+    fun initializeSocket(
+        onSuccess: (Socket) -> Unit,
+        onError: (String) -> Unit,
+        context: Context
     ) {
-
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             debug("Uncaught exception in thread socket manager ${thread.name}: ${throwable.message}\n${throwable.printStackTrace()}")
             throwable.printStackTrace()
@@ -46,143 +50,104 @@ object SocketManager {
 
 
 
+        try {
+            val options = IO.Options.builder()
+                .setTransports(arrayOf("websocket"))
+                .setExtraHeaders(mapOf("device-type" to listOf("MainWatchConnection")))
+                .build()
 
+            socket = IO.socket(watchServerURL, options)
 
-
-            val watchServerURL = "http://$ServerIP:$ServerPort"
-
-            try {
-                val options = IO.Options.builder()
-                    .setTransports(arrayOf("websocket")) // Use WebSocket transport
-                    .setExtraHeaders(mapOf("device-type" to listOf("MainWatchConnection")))
-                    .build()
-
-                socket = IO.socket(watchServerURL, options)
-
-
-
-                // Listen for connection events
-                socket!!.on(Socket.EVENT_CONNECT) {
-                    println("Connected to Socket.IO server")
-                    onSuccess(socket!!)
-                }.on(Socket.EVENT_DISCONNECT) {
-                    println("Disconnected from Socket.IO server")
-                }.on(Socket.EVENT_CONNECT_ERROR) { args ->
-                    val error = args[0].toString()
-                    println("Connection error: $error")
-                    onError(error)
-                }.on("message") { args ->
-                    val message = args[0].toString()
-                    println("Received message: $message")
-                }.on("startRecordingAudio"){ args ->
-                    // start recording sensor
-//                    debug("got start Recording audio ${ args[0]}")
-                    val data = args[0] as JSONObject
-                    val streamName = data.getString("endpoint")
-                    val finishedRecordingSocketEventName = data.getString("WhenDoneRecording")
-
-                    // Start the service on the main thread
-                    if (!RecordingServiceStarted) {
-
-                        val startAudioRecordingServiceIntent =
-                            Intent(context, AudioRecorderService::class.java).apply {
-                                action = "START_SERVICE"
-                                putExtra("APIEndpointName", streamName)
-                                putExtra("WhenDoneRecording", finishedRecordingSocketEventName)
-                            }
-                        context.startService(startAudioRecordingServiceIntent)
-                        RecordingServiceStarted = true
-
-                    }
-
-                    // Just tell the existing service to start recording
-                    val recordIntent = Intent(context, AudioRecorderService::class.java).apply {
-                        action = "START_RECORDING"
-                    }
-                    context.startService(recordIntent)
-
-//                    StartRecordingSensors(context, "KeystrokeSensorStream")
-//                    debug("Sent start recording command to service")
-
-
-
-                }.on("stopRecordingAudio") {
-                    // Stop the service on the main thread using the stored Intent
-//                    Handler(Looper.getMainLooper()).post {
-
-                        val intent = Intent(context, AudioRecorderService::class.java).apply {
-                            action = "STOP_RECORDING"
-                        }
-                        context.startService(intent)
-
-//                        StopRecordingSensors(context)
-
+            socket!!.on(Socket.EVENT_CONNECT) {
+                println("Connected to Socket.IO server")
+                onSuccess(socket!!)
+            }.on(Socket.EVENT_DISCONNECT) {
+                println("Disconnected from Socket.IO server")
+            }.on(Socket.EVENT_CONNECT_ERROR) { args ->
+                val error = args[0].toString()
+                println("Connection error: $error")
+                onError(error)
+            }.on("message") { args ->
+                val message = args[0].toString()
+                println("Received message: $message")
+            }
+//                .on("startRecordingAudio") { args ->
+//                debug("got start Recording audio ${args[0]}")
+//                val data = args[0] as JSONObject
+//                val streamName = data.getString("endpoint")
+//                val finishedRecordingSocketEventName = data.getString("WhenDoneRecording")
+//
+//                runOnMainThread {
+//                    if (recordingServiceStarted.compareAndSet(false, true)) {
+//                        val startIntent = Intent(context, AudioRecorderService::class.java).apply {
+//                            action = "START_SERVICE"
+//                            putExtra("APIEndpointName", streamName)
+//                            putExtra("WhenDoneRecording", finishedRecordingSocketEventName)
+//                        }
+//                        ContextCompat.startForegroundService(context, startIntent)
 //                    }
-                }
-//                    .on("StartRecordingSensorsForKeystrokes"){ args ->
-//                    // start recording sensor
-////                    debug("got start Recording sensors")
-//                    val streamName = args[0].toString()
 //
-//                    StartRecordingSensors(context, streamName)
-//
-//
-//
-//                }.on("StopRecordingSensorsForKeystrokes"){
-//                    //stop and recording sensors
-//                    // Stop the service on the main thread using the stored Intent
-//
-//                    StopRecordingSensors(context)
-//
-//
-//
-//
+//                    if (isRecording.compareAndSet(false, true)) {
+//                        debug("received start recording audio ${System.currentTimeMillis()}")
+//                        val recordIntent = Intent(context, AudioRecorderService::class.java).apply {
+//                            action = "START_RECORDING"
+//                            putExtra("APIEndpointName", streamName)
+//                            putExtra("WhenDoneRecording", finishedRecordingSocketEventName)
+//                        }
+//                        ContextCompat.startForegroundService(context, recordIntent)
+//                    }
 //                }
-                    .on("StartRecordingSensors"){ args ->
-                    // start recording sensor
-//                    debug("got start Recording sensors")
-                    val streamName = args[0].toString()
-
-                        StartRecordingSensors(context, streamName)
-
-
-
-                }.on("StopRecordingSensors"){
-                    //stop and recording sensors
-                    // Stop the service on the main thread using the stored Intent
-
+//            }.on("stopRecordingAudio") {
+//                debug("got stop recording audio ${System.currentTimeMillis()}")
+//                runOnMainThread {
+//                    val intent = Intent(context, AudioRecorderService::class.java).apply {
+//                        action = "STOP_RECORDING"
+//                    }
+//                    ContextCompat.startForegroundService(context, intent)
+//                    isRecording.set(false)
+//                }
+//            }
+                .on("StartRecordingSensors") { args ->
+                val streamName = args[0].toString()
+                runOnMainThread {
+                    StartRecordingSensors(context, streamName)
+                }
+            }.on("StopRecordingSensors") {
+                runOnMainThread {
                     StopRecordingSensors(context)
-
-
-
-
-                }.on("StartRecordingLinearAcceleration"){
-                    if (!linearAccelServiceStarted) {
-                        initializeLinearAccelSensorService(context)
-                        linearAccelServiceStarted = true
+                }
+            }.on("StartRecordingLinearAcceleration") {
+                runOnMainThread {
+                    if (linearAccelServiceStarted.compareAndSet(false, true)) {
+                        val startIntent = Intent(context, LinearAccelerationRecordingService::class.java).apply {
+                            action = "START_SERVICE"
+                        }
+                        ContextCompat.startForegroundService(context, startIntent)
                     }
 
-                    val StartIntent = Intent(context, LinearAccelerationRecordingService::class.java).apply {
+                    val recordIntent = Intent(context, LinearAccelerationRecordingService::class.java).apply {
                         action = "START_RECORDING"
                     }
-                    context.startService(StartIntent)
-                }.on("StopRecordingLinearAcceleration"){
-                    if (linearAccelServiceStarted) {
-                        val stopRecordIntent = Intent(context, LinearAccelerationRecordingService::class.java).apply {
+                    ContextCompat.startForegroundService(context, recordIntent)
+                }
+            }.on("StopRecordingLinearAcceleration") {
+                runOnMainThread {
+                    if (linearAccelServiceStarted.get()) {
+                        val stopIntent = Intent(context, LinearAccelerationRecordingService::class.java).apply {
                             action = "STOP_RECORDING"
                         }
-                        context.startService(stopRecordIntent)
-//                        debug("Sent stop recording command to service")
+                        ContextCompat.startForegroundService(context, stopIntent)
                     }
                 }
-
-                // Connect to the server
-                socket?.connect()
-
-            } catch (e: Exception) {
-                onError(e.message ?: "Unknown error")
+            }.on("getTime") {
+//                getSocket().emit("WatchTime", NtpTimeProvider.nowMs())
+                getSocket().emit("WatchTime", System.currentTimeMillis())
             }
 
+            socket?.connect()
+        } catch (e: Exception) {
+            onError(e.message ?: "Unknown error")
+        }
     }
 
     fun getSocket(): Socket {
@@ -194,64 +159,36 @@ object SocketManager {
         socket = null
     }
 
-    fun getServerIP(): String{
-        return ServerIP;
+    fun getServerIP(): String = ServerIP
+
+    fun getServerPort(): String = ServerPort
+    fun getServerURL(): String = watchServerURL
+
+    fun debug(Msg: String) {
+        socket?.emit("testingDebug", Msg)
     }
 
-    fun getServerPort(): String{
-        return ServerPort;
-    }
-
-    fun debug(Msg: String){
-        socket!!.emit("testingDebug", Msg);
-    }
-
-    // Initialize service only once at appropriate time (app start or connection)
-    private fun initializeSensorService(context : Context
-                                ) {
-        val sensorService = Intent(context, SensorRecordingService::class.java).apply {
-            action = "START_SERVICE"
+    private fun StartRecordingSensors(context: Context, SocketSensorEventName: String) {
+        if (sensorServiceStarted.compareAndSet(false, true)) {
+            val sensorService = Intent(context, SensorRecordingService::class.java).apply {
+                action = "START_SERVICE"
+            }
+            ContextCompat.startForegroundService(context, sensorService)
         }
-        context.startForegroundService(sensorService)
-        sensorServiceStarted = true
-//        debug("Sensor service initialized")
-    }
-
-
-    // Initialize service only once at appropriate time (app start or connection)
-    private fun initializeLinearAccelSensorService(context : Context
-    ) {
-        val sensorService = Intent(context, LinearAccelerationRecordingService::class.java).apply {
-            action = "START_SERVICE"
-        }
-        context.startForegroundService(sensorService)
-        sensorServiceStarted = true
-        debug("Sensor service initialized")
-    }
-
-    private fun StartRecordingSensors(context: Context, SocketSensorEventName: String){
-        if (!sensorServiceStarted) {
-            initializeSensorService(context)
-            sensorServiceStarted = true
-        }
-
 
         val intent = Intent(context, SensorRecordingService::class.java).apply {
             action = "START_RECORDING"
-            putExtra("SocketEventName", SocketSensorEventName)
+            putExtra("APIEndpoint", SocketSensorEventName)
         }
-        context.startService(intent)
-
+        ContextCompat.startForegroundService(context, intent)
     }
 
-    private fun StopRecordingSensors(context: Context){
-        if (sensorServiceStarted) {
-            val stopRecordIntent = Intent(context, SensorRecordingService::class.java).apply {
+    private fun StopRecordingSensors(context: Context) {
+        if (sensorServiceStarted.get()) {
+            val stopIntent = Intent(context, SensorRecordingService::class.java).apply {
                 action = "STOP_RECORDING"
             }
-            context.startService(stopRecordIntent)
-//                        debug("Sent stop recording command to service")
+            ContextCompat.startForegroundService(context, stopIntent)
         }
     }
-
 }

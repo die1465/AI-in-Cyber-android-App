@@ -19,6 +19,9 @@ import android.util.Base64
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.example.watchclientapp.R
+import com.example.watchclientapp.presentation.SocketManager.getSocket
+import io.socket.client.IO
+import io.socket.client.Socket
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 
@@ -40,6 +43,7 @@ import java.net.InetAddress
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.MediaType.Companion.toMediaType
+import java.util.concurrent.TimeUnit
 
 /**
  * Fetches the current time from an NTP server, returning
@@ -78,8 +82,14 @@ class AudioRecorderService : Service() {
     private lateinit var pcmFile: File
     private var pcmOut: FileOutputStream? = null
 
-    private val httpClient = OkHttpClient()
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
+        .build()
     private val _NTPHost = "time.google.com"
+    private lateinit var localSocket: Socket
+
 
 
 
@@ -98,42 +108,81 @@ class AudioRecorderService : Service() {
 
         createNotificationChannel()
 
-        createNotificationChannel()
+        // Init local socket
+        val options = IO.Options.builder()
+            .setTransports(arrayOf("websocket"))
+            .setExtraHeaders(mapOf("device-type" to listOf("AudioService")))
+            .build()
+
+        localSocket = IO.socket(SocketManager.getServerURL(), options)
+
+
+        localSocket.on(Socket.EVENT_CONNECT) {
+            debug("AudioRecorderService socket connected")
+        }
+
+        localSocket.on(Socket.EVENT_CONNECT_ERROR) { args ->
+            debug("AudioRecorderService socket error: ${args[0]}")
+        }
+
+        localSocket.on("startRecordingAudio"){args ->
+            debug("got start Recording audio ${args[0]}")
+            val data = args[0] as JSONObject
+            _APIEndPointName = data.getString("endpoint")
+            _finishedRecordingSocketEventName = data.getString("WhenDoneRecording")
+            startRecordingInternal()
+        }.on("stopRecordingAudio") {
+            stopRecordingInternal()
+        }
+
+        localSocket.connect()
 
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-            SocketManager.debug("Uncaught exception in thread recording audio ${thread.name}: ${throwable.message}\n${throwable.printStackTrace()}")
+            debug("Uncaught exception in thread recording audio ${thread.name}: ${throwable.message}\n${throwable.printStackTrace()}")
             throwable.printStackTrace()
         }
     }
 
-
+    private fun debug(msg: String) {
+        if (::localSocket.isInitialized && localSocket.connected()) {
+            localSocket.emit("testingDebug", msg)
+        }
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         serviceHandler.post {
-
+//            intent?.getStringExtra("APIEndpointName")?.let { endpoint ->
+//                _APIEndPointName = endpoint
+//
+//            }
+//
+//            intent?.getStringExtra("WhenDoneRecording")?.let { socketEventName ->
+//                _finishedRecordingSocketEventName = socketEventName
+//            }
             when (intent?.action) {
-                "START_RECORDING" -> {
-
-                    startRecordingInternal()
-                }
-
-                "STOP_RECORDING" -> {
-                    stopRecordingInternal()
-                }
+//                "START_RECORDING" -> {
+//
+//                    startRecordingInternal()
+//                }
+//
+//                "STOP_RECORDING" -> {
+//                    stopRecordingInternal()
+//                }
 
                 "START_SERVICE" -> {
                     // Normal service start
                     startForegroundService()
                 }
+                "DISCONNECT_SERVICE" -> {
+                    // Normal service start
+                    localSocket.disconnect()
+                }
+                "CONNECT_SERVICE" -> {
+                    // Normal service start
+                    localSocket.connect()
+                }
             }
-            intent?.getStringExtra("APIEndpointName")?.let { endpoint ->
-                _APIEndPointName = endpoint
 
-            }
-
-            intent?.getStringExtra("WhenDoneRecording")?.let { socketEventName ->
-                _finishedRecordingSocketEventName = socketEventName
-            }
 
         }
             return START_STICKY
@@ -167,7 +216,7 @@ class AudioRecorderService : Service() {
     private fun stopRecordingInternal() {
         if (isRecording) {
             stopRecording()
-            SocketManager.getSocket().emit("StoppedRecordingFromWatch")
+
         }
     }
 
@@ -238,28 +287,30 @@ class AudioRecorderService : Service() {
                 .setBufferSizeInBytes(bufferSize)
                 .build()
         } catch (e: Exception) {
-            SocketManager.debug("AudioRecord creation failed: ${e.message}")
+            debug("AudioRecord creation failed: ${e.message}")
             null
         }
 
         if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-            SocketManager.debug("AudioRecord initialization failed")
+            debug("AudioRecord initialization failed")
             stopSelf()
             return
         }
 
         try {
 //            CoroutineScope(Dispatchers.IO).launch {
-//            recordingStartTime = fetchNtpTimeMillis(_NTPHost)
-            NtpTimeProvider.forceSync()
+//            recordingStartTime = fetchNtpTimeMillisWithRtt(_NTPHost)
+//            debug("time when audio starts recording ${System.currentTimeMillis()}")
+//            NtpTimeProvider.forceSync()
             recordingStartTime = NtpTimeProvider.nowMs()
+
 //            }
             audioRecord?.startRecording()
-
+//            recordingStartTime = System.currentTimeMillis()
             isRecording = true
             var shouldRecord = true
             recordingJob = CoroutineScope(Dispatchers.IO).launch {
-
+//                debug("WatchTime after recording started  ${NtpTimeProvider.nowMs()}")
                 while (isActive && shouldRecord) {
                     try {
                         recordingMutex.withLock {
@@ -277,6 +328,7 @@ class AudioRecorderService : Service() {
                     }
                 }
 //                sendDoneRecordingMessage()
+                debug("the recording stopped on the watch at ${System.currentTimeMillis()}")
             }
         } catch (e: Exception) {
             handleRecordingError(e)
@@ -296,21 +348,21 @@ class AudioRecorderService : Service() {
     private fun handleReadError(errorCode: Int) {
         when (errorCode) {
             AudioRecord.ERROR_INVALID_OPERATION ->
-                SocketManager.debug("ERROR_INVALID_OPERATION")
+                debug("ERROR_INVALID_OPERATION")
             AudioRecord.ERROR_BAD_VALUE ->
-                SocketManager.debug("ERROR_BAD_VALUE")
+                debug("ERROR_BAD_VALUE")
             AudioRecord.ERROR_DEAD_OBJECT ->
-                SocketManager.debug("ERROR_DEAD_OBJECT")
+                debug("ERROR_DEAD_OBJECT")
             AudioRecord.ERROR ->
-                SocketManager.debug("GENERIC_ERROR")
+                debug("GENERIC_ERROR")
             else ->
-                SocketManager.debug("No data read")
+                debug("No data read")
         }
 
     }
 
     private fun handleRecordingError(e: Exception) {
-        SocketManager.debug("Recording error: ${e.message}")
+        debug("Recording error: ${e.message}")
 
     }
     private fun sendDoneRecordingMessage(){
@@ -349,7 +401,7 @@ class AudioRecorderService : Service() {
             audioRecord?.stop()
             audioRecord?.release()
         } catch (e: Exception) {
-            SocketManager.debug("Error stopping recording: ${e.message}")
+            debug("Error stopping recording: ${e.message}")
         }
         audioRecord = null
         // 1) close the PCM stream
@@ -374,69 +426,82 @@ class AudioRecorderService : Service() {
 
                 httpClient.newCall(request).execute().use { resp ->
                     if (resp.isSuccessful) {
-                        SocketManager.debug("PCM upload succeeded, deleting file")
-                        sendDoneRecordingMessage()
+                        debug("PCM upload succeeded, deleting file")
+
                         val deleted = file.delete()
+                        sendDoneRecordingMessage()
                         if (deleted) {
-                            SocketManager.debug("File deleted successfully")
+                            debug("File deleted successfully")
                         } else {
-                            SocketManager.debug("Failed to delete file")
+                            debug("Failed to delete file")
                         }
                     } else {
-                        SocketManager.debug("PCM upload failed: ${resp.code}")
+                        debug("PCM upload failed: ${resp.code}")
                     }
                 }
 
             } catch (e: Exception) {
-                SocketManager.debug("Upload error: ${e.message}")
+                debug("Upload error: ${e.message}")
             }
         }
     }
 
     @Throws(Exception::class)
-    fun fetchNtpTimeMillis(host: String, timeoutMs: Int = 3000): Long {
-        // --- NTP protocol constants ---
+    fun fetchNtpTimeMillisWithRtt(host: String, timeoutMs: Int = 3000): Long {
         val NTP_PORT = 123
         val PACKET_SIZE = 48
         val MODE_CLIENT = 3
         val VERSION = 4
-        val TRANSMIT_TIME_OFFSET = 40
-        // Seconds from Jan 1 1900 → Jan 1 1970
         val OFFSET_1900_TO_1970 = 2_208_988_800L
+        val TRANSMIT_TIME_OFFSET = 40
+        val RECEIVE_TIME_OFFSET = 32
 
-        // 1) Build & send the NTP request packet
         val buffer = ByteArray(PACKET_SIZE).apply {
-            // LI = 0 (no warning), VN = VERSION, Mode = client
             this[0] = ((VERSION shl 3) or MODE_CLIENT).toByte()
         }
+
         val address = InetAddress.getByName(host)
-        DatagramSocket().use { socket ->
-            socket.soTimeout = timeoutMs
-            socket.send(DatagramPacket(buffer, buffer.size, address, NTP_PORT))
-            socket.receive(DatagramPacket(buffer, buffer.size))
+        val socket = DatagramSocket().apply { soTimeout = timeoutMs }
+
+        val requestPacket = DatagramPacket(buffer, buffer.size, address, NTP_PORT)
+
+        // T1: time request sent (local system time in ms)
+        val t1 = System.currentTimeMillis()
+        socket.send(requestPacket)
+
+        val responsePacket = DatagramPacket(buffer, buffer.size)
+        socket.receive(responsePacket)
+        val t4 = System.currentTimeMillis() // T4: time response received
+
+        socket.close()
+
+        // Parse timestamps from NTP packet
+        fun readTimestamp(offset: Int): Long {
+            val seconds = (
+                    (buffer[offset].toLong() and 0xFF shl 24) or
+                            (buffer[offset + 1].toLong() and 0xFF shl 16) or
+                            (buffer[offset + 2].toLong() and 0xFF shl 8) or
+                            (buffer[offset + 3].toLong() and 0xFF)
+                    )
+            val fraction = (
+                    (buffer[offset + 4].toLong() and 0xFF shl 24) or
+                            (buffer[offset + 5].toLong() and 0xFF shl 16) or
+                            (buffer[offset + 6].toLong() and 0xFF shl 8) or
+                            (buffer[offset + 7].toLong() and 0xFF)
+                    )
+            val ms = ((seconds - OFFSET_1900_TO_1970) * 1000L) + ((fraction * 1000L) ushr 32)
+            return ms
         }
 
-        // 2) Parse the server Transmit Timestamp (seconds + fraction)
-        val seconds = (
-                (buffer[TRANSMIT_TIME_OFFSET].toLong() and 0xFF shl 24) or
-                        (buffer[TRANSMIT_TIME_OFFSET + 1].toLong() and 0xFF shl 16) or
-                        (buffer[TRANSMIT_TIME_OFFSET + 2].toLong() and 0xFF shl 8) or
-                        (buffer[TRANSMIT_TIME_OFFSET + 3].toLong() and 0xFF)
-                )
-        val fraction = (
-                (buffer[TRANSMIT_TIME_OFFSET + 4].toLong() and 0xFF shl 24) or
-                        (buffer[TRANSMIT_TIME_OFFSET + 5].toLong() and 0xFF shl 16) or
-                        (buffer[TRANSMIT_TIME_OFFSET + 6].toLong() and 0xFF shl 8) or
-                        (buffer[TRANSMIT_TIME_OFFSET + 7].toLong() and 0xFF)
-                )
+        val t2 = readTimestamp(RECEIVE_TIME_OFFSET) // server received client request
+        val t3 = readTimestamp(TRANSMIT_TIME_OFFSET) // server sent response
 
-        // 3) Convert NTP time → Epoch milliseconds
-        val epochSeconds = seconds - OFFSET_1900_TO_1970
-        val msFromSeconds = epochSeconds * 1_000L
-        // fraction/2^32 * 1000 = (fraction * 1000) >>> 32
-        val msFromFraction = (fraction * 1_000L ushr 32)
-
-        return msFromSeconds + msFromFraction
+        // RTT and offset calculations
+        val rtt = (t4 - t1) - (t3 - t2)
+        val offset = ((t2 - t1) + (t3 - t4)) / 2
+        debug("rtt of ntp function ${(t4 - t1)}")
+        return t4 + offset // corrected current time in ms
     }
+
 
 }

@@ -179,7 +179,7 @@ class LinearAccelerationRecordingService : Service(), SensorEventListener {
 
     private fun sendLinearAccelData() {
         latestLinearAccelData?.let { data ->
-            val timestamp = System.currentTimeMillis()
+            val timestamp = NtpTimeProvider.nowMs()
             val formattedData = "$timestamp,${data[0]},${data[1]},${data[2]}"
             SocketManager.getSocket().emit("LinearAccelStream", formattedData)
             hasNewLinearAccelData.set(false)

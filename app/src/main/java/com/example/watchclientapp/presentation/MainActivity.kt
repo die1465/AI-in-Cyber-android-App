@@ -20,6 +20,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -71,7 +72,14 @@ class MainActivity : ComponentActivity() {
 
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MyApp::MyWakelockTag")
-        wakeLock.acquire(60 * 60 * 1000L /*1 hour*/) // Timeout to prevent battery drain
+        wakeLock.acquire(60 * 60 * 1000L * 24 /*1 hour*/) // Timeout to prevent battery drain
+
+
+            val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+            startActivity(intent)
+
+
+
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             SocketManager.debug("Uncaught exception in thread Main Acitivity ${thread.name}: ${throwable.message}\n${throwable.printStackTrace()}")
             throwable.printStackTrace()
@@ -157,6 +165,7 @@ fun WearApp(greetingName: String, context: Context) {
                                         onSuccess = { s ->
                                             socket = s
                                             connectionState = ConnectionState.Connected
+                                            NtpTimeProvider.forceSync()
                                         },
                                         onError = { error ->
                                             println("Connection error: $error")
@@ -165,6 +174,13 @@ fun WearApp(greetingName: String, context: Context) {
                                         },
                                         context = context
                                     )
+
+                                }
+                                coroutineScope.launch {
+                                    val intent = Intent(context, AudioRecorderService::class.java).apply {
+                                        action = "CONNECT_SERVICE"
+                                    }
+                                    ContextCompat.startForegroundService(context, intent)
                                 }
                             },
                             // only enabled if we're fully disconnected
@@ -189,6 +205,10 @@ fun WearApp(greetingName: String, context: Context) {
                                 SocketManager.disconnectSocket()
                                 socket = null
                                 connectionState = ConnectionState.Disconnected
+                                val intent = Intent(context, AudioRecorderService::class.java).apply {
+                                    action = "DISCONNECT_SERVICE"
+                                }
+                                ContextCompat.startForegroundService(context, intent)
                             },
                             enabled = true
                         ) {
