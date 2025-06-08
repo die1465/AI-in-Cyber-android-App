@@ -182,6 +182,13 @@ fun WearApp(greetingName: String, context: Context) {
                                     }
                                     ContextCompat.startForegroundService(context, intent)
                                 }
+
+                                coroutineScope.launch {
+                                    val intent = Intent(context, SensorRecordingService::class.java).apply {
+                                        action = "CONNECT_SERVICE"
+                                    }
+                                    ContextCompat.startForegroundService(context, intent)
+                                }
                             },
                             // only enabled if we're fully disconnected
                             enabled = true
@@ -209,6 +216,11 @@ fun WearApp(greetingName: String, context: Context) {
                                     action = "DISCONNECT_SERVICE"
                                 }
                                 ContextCompat.startForegroundService(context, intent)
+
+                                val sensorIntent = Intent(context, SensorRecordingService::class.java).apply {
+                                    action = "DISCONNECT_SERVICE"
+                                }
+                                ContextCompat.startForegroundService(context, sensorIntent)
                             },
                             enabled = true
                         ) {

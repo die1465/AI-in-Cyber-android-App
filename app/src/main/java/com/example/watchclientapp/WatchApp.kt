@@ -5,6 +5,7 @@ import android.content.Intent
 import androidx.core.content.ContextCompat
 import com.example.watchclientapp.presentation.AudioRecorderService
 import com.example.watchclientapp.presentation.NtpTimeProvider
+import com.example.watchclientapp.presentation.SensorRecordingService
 
 class WatchApp : Application() {
     override fun onCreate() {
@@ -15,5 +16,10 @@ class WatchApp : Application() {
             action = "START_SERVICE"
         }
         ContextCompat.startForegroundService(this, intent)
+
+        val sensorServiceIntent = Intent(this, SensorRecordingService::class.java).apply {
+            action = "START_SERVICE"
+        }
+        ContextCompat.startForegroundService(this, sensorServiceIntent)
     }
 }

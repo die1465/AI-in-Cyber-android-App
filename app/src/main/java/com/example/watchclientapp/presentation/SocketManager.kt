@@ -71,52 +71,17 @@ object SocketManager {
                 val message = args[0].toString()
                 println("Received message: $message")
             }
-//                .on("startRecordingAudio") { args ->
-//                debug("got start Recording audio ${args[0]}")
-//                val data = args[0] as JSONObject
-//                val streamName = data.getString("endpoint")
-//                val finishedRecordingSocketEventName = data.getString("WhenDoneRecording")
-//
+//                .on("StartRecordingSensors") { args ->
+//                val streamName = args[0].toString()
 //                runOnMainThread {
-//                    if (recordingServiceStarted.compareAndSet(false, true)) {
-//                        val startIntent = Intent(context, AudioRecorderService::class.java).apply {
-//                            action = "START_SERVICE"
-//                            putExtra("APIEndpointName", streamName)
-//                            putExtra("WhenDoneRecording", finishedRecordingSocketEventName)
-//                        }
-//                        ContextCompat.startForegroundService(context, startIntent)
-//                    }
-//
-//                    if (isRecording.compareAndSet(false, true)) {
-//                        debug("received start recording audio ${System.currentTimeMillis()}")
-//                        val recordIntent = Intent(context, AudioRecorderService::class.java).apply {
-//                            action = "START_RECORDING"
-//                            putExtra("APIEndpointName", streamName)
-//                            putExtra("WhenDoneRecording", finishedRecordingSocketEventName)
-//                        }
-//                        ContextCompat.startForegroundService(context, recordIntent)
-//                    }
+//                    StartRecordingSensors(context, streamName)
 //                }
-//            }.on("stopRecordingAudio") {
-//                debug("got stop recording audio ${System.currentTimeMillis()}")
+//            }.on("StopRecordingSensors") {
 //                runOnMainThread {
-//                    val intent = Intent(context, AudioRecorderService::class.java).apply {
-//                        action = "STOP_RECORDING"
-//                    }
-//                    ContextCompat.startForegroundService(context, intent)
-//                    isRecording.set(false)
+//                    StopRecordingSensors(context)
 //                }
 //            }
-                .on("StartRecordingSensors") { args ->
-                val streamName = args[0].toString()
-                runOnMainThread {
-                    StartRecordingSensors(context, streamName)
-                }
-            }.on("StopRecordingSensors") {
-                runOnMainThread {
-                    StopRecordingSensors(context)
-                }
-            }.on("StartRecordingLinearAcceleration") {
+            .on("StartRecordingLinearAcceleration") {
                 runOnMainThread {
                     if (linearAccelServiceStarted.compareAndSet(false, true)) {
                         val startIntent = Intent(context, LinearAccelerationRecordingService::class.java).apply {

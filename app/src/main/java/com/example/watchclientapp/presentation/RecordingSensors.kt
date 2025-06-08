@@ -28,7 +28,6 @@ import io.socket.client.IO
 import io.socket.client.Socket
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -38,6 +37,7 @@ import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
+import org.json.JSONObject
 import java.io.BufferedWriter
 import java.io.File
 import java.io.FileWriter
@@ -45,8 +45,6 @@ import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.time.Instant
 import java.util.concurrent.TimeUnit
-
-
 
 class SensorRecordingService : Service(), SensorEventListener {
 
@@ -64,21 +62,69 @@ class SensorRecordingService : Service(), SensorEventListener {
     private lateinit var fileWriter: BufferedWriter
     private var _postAPIEndpoint = ""
 
-
-
     // SensorDirectChannel variables
     private var directChannel: SensorDirectChannel? = null
     private var memoryFile: MemoryFile? = null
     private var pfd: ParcelFileDescriptor? = null
 
+    private lateinit var localSocket: Socket
 
     override fun onCreate() {
         super.onCreate()
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         acquireWakeLock()
-//        SocketManager.getSocket().emit("testingDebug", "sensor recording service is created")
-        startForegroundService()
 
+        // Init local socket
+        val options = IO.Options.builder()
+            .setTransports(arrayOf("websocket"))
+            .setExtraHeaders(mapOf("device-type" to listOf("SensorService")))
+            .build()
+
+        localSocket = IO.socket(SocketManager.getServerURL(), options)
+
+        localSocket.on(Socket.EVENT_CONNECT) {
+            SocketManager.debug("RecordingSensorsService socket connected")
+        }
+
+        localSocket.on(Socket.EVENT_CONNECT_ERROR) { args ->
+            SocketManager.debug("RecordingSensorsService socket error: ${args[0]}")
+        }
+
+        localSocket.on("StartRecordingSensors"){args ->
+            SocketManager.debug("got start Recording sensors ${args[0]}")
+            val endpoint = args[0].toString()
+            _postAPIEndpoint = "http://${SocketManager.getServerIP()}:${SocketManager.getServerPort()}/$endpoint"
+            if (!isRecording) {
+                val filename = "sensor_data_${System.currentTimeMillis()}.csv"
+                sensorDataFile = File(filesDir, filename)
+                fileWriter = BufferedWriter(FileWriter(sensorDataFile, true)) // append mode
+
+                registerSensors()
+                isRecording = true
+                SocketManager.debug("Recording started")
+            } else {
+                SocketManager.debug("Already recording sensors, ignoring start command")
+            }
+        }.on("StopRecordingSensors") {
+            if (isRecording) {
+                unregisterSensors()
+                isRecording = false
+                try {
+                    fileWriter.flush()
+                    fileWriter.close()
+                    sendSensorFileToServer(sensorDataFile)
+                } catch (e: IOException) {
+                    e.printStackTrace()
+                    SocketManager.debug("File close or send failed: ${e.message}")
+                }
+                SocketManager.debug("Recording stopped")
+            } else {
+                SocketManager.debug("Not currently recording, ignoring stop command")
+            }
+        }
+
+        localSocket.connect()
+        startForegroundService()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -87,48 +133,19 @@ class SensorRecordingService : Service(), SensorEventListener {
         }
         when (intent?.action) {
             "START_SERVICE" -> {
-                if(!isRecording) {
-//                    startForegroundService() // Just initialize but don't start recording yet
-                    SocketManager.debug("Service initialized, awaiting recording commands")
-                }
+                // Just initialize but don't start recording yet
             }
-            "START_RECORDING" -> {
-                if (!isRecording) {
-                    val filename = "sensor_data_${System.currentTimeMillis()}.csv"
-                    sensorDataFile = File(filesDir, filename)
-                    fileWriter = BufferedWriter(FileWriter(sensorDataFile, true)) // append mode
-
-                    registerSensors()
-                    isRecording = true
-                    SocketManager.debug("Recording started")
-                } else {
-                    SocketManager.debug("Already recording sensors, ignoring start command")
-                }
+            "CONNECT_SERVICE" -> {
+                localSocket.connect()
             }
-            "STOP_RECORDING" -> {
-                if (isRecording) {
-                    unregisterSensors()
-                    isRecording = false
-                    try {
-                        fileWriter.flush()
-                        fileWriter.close()
-                        sendSensorFileToServer(sensorDataFile)
-                    } catch (e: IOException) {
-                        e.printStackTrace()
-                        SocketManager.debug("File close or send failed: ${e.message}")
-                    }
-                    SocketManager.debug("Recording stopped")
-                } else {
-                    SocketManager.debug("Not currently recording, ignoring stop command")
-                }
+            "DISCONNECT_SERVICE" -> {
+                localSocket.disconnect()
             }
             "STOP_SERVICE" -> {
                 if (isRecording) {
                     unregisterSensors()
                     isRecording = false
                 }
-
-//                SocketManager.debug("Service stopping completely")
             }
         }
 
@@ -144,7 +161,6 @@ class SensorRecordingService : Service(), SensorEventListener {
         super.onDestroy()
         unregisterSensors()
         releaseWakeLock()
-
     }
 
     private fun acquireWakeLock() {
@@ -163,15 +179,12 @@ class SensorRecordingService : Service(), SensorEventListener {
         val channelId = "sensor_recording_channel"
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-
-            val channel = NotificationChannel(
-                channelId,
-                "Sensor Recording",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            notificationManager.createNotificationChannel(channel)
-
-
+        val channel = NotificationChannel(
+            channelId,
+            "Sensor Recording",
+            NotificationManager.IMPORTANCE_LOW
+        )
+        notificationManager.createNotificationChannel(channel)
 
         val notification: Notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("Recording Sensor Data")
@@ -179,30 +192,49 @@ class SensorRecordingService : Service(), SensorEventListener {
             .build()
 
         startForeground(2, notification)
-//        SocketManager.getSocket().emit("testingDebug", "sensor the foreground service is started")
-
     }
 
-
-
     private fun registerSensors() {
-
         val desiredHZ = 10_000  // 100Hz = 10ms per sample
         val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         val gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+        val magnetometer = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
 
-        if (accelerometer == null || gyroscope == null) {
-            SocketManager.debug("the sensors are null")
-            stopSelf() // Stop the service if sensors are not available
+        // Add PPG sensor registration
+        val ppgSensor = sensorManager.getDefaultSensor(Sensor.TYPE_HEART_RATE)
+
+        // Alternative PPG sensors to try if TYPE_HEART_RATE isn't available
+        val ppgSensorAlt = if (ppgSensor == null) {
+            // Try vendor-specific PPG sensor types
+            sensorManager.getDefaultSensor(65572) // Common vendor-specific PPG type
+        } else null
+
+        if (accelerometer == null || gyroscope == null || magnetometer == null) {
+            SocketManager.debug("Core sensors are null")
+            stopSelf()
             return
         }
 
+        // Register core sensors
         sensorManager.registerListener(this, accelerometer, desiredHZ, 0)
         sensorManager.registerListener(this, gyroscope, desiredHZ, 0)
+        sensorManager.registerListener(this, magnetometer, desiredHZ, 0)
 
-        SocketManager.debug("the sensors are registered, sampling rate \naccel ${accelerometer.minDelay}" +
-                "\n gyro ${gyroscope.minDelay}")
+        // Register PPG sensor if available
+        if (ppgSensor != null) {
+            // PPG sensors typically work at lower frequencies (1-10Hz)
+            val ppgSampleRate = SensorManager.SENSOR_DELAY_FASTEST
+            sensorManager.registerListener(this, ppgSensor, ppgSampleRate, 0)
+            SocketManager.debug("PPG sensor registered (TYPE_HEART_RATE)")
+        } else {
+            SocketManager.debug("No PPG sensor available on this device")
+        }
 
+        SocketManager.debug("Sensors registered, sampling rates:" +
+                "\naccel ${accelerometer.minDelay}" +
+                "\ngyro ${gyroscope.minDelay}" +
+                "\nmagnetometer ${magnetometer.minDelay}" +
+                "\nppg available: ${ppgSensor != null || ppgSensorAlt != null}")
     }
 
     private fun unregisterSensors() {
@@ -210,56 +242,66 @@ class SensorRecordingService : Service(), SensorEventListener {
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
-
-//        val timestamp = System.currentTimeMillis()
-
         event?.let {
-            if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
-//                latestAccelData = event.values
-//                hasNewAccelData.set(true)
-                val timestamp = NtpTimeProvider.nowMs()
-                val (x, y, z) = event.values
-                // sensor type 10 for accel
-                val line = "10,$timestamp,$x,$y,$z\n"
-                try {
-                    fileWriter.write(line)
-                } catch (e: IOException) {
-                    e.printStackTrace()
-                    SocketManager.debug("File write failed: ${e.message}")
+            when (event.sensor.type) {
+                Sensor.TYPE_ACCELEROMETER -> {
+                    val timestamp = NtpTimeProvider.nowMs()
+                    val (x, y, z) = event.values
+                    // sensor type 10 for accel
+                    val line = "10,$timestamp,${event.timestamp},$x,$y,$z\n"
+                    try {
+                        fileWriter.write(line)
+                    } catch (e: IOException) {
+                        e.printStackTrace()
+                        SocketManager.debug("File write failed: ${e.message}")
+                    }
+                }
+
+                Sensor.TYPE_GYROSCOPE -> {
+                    val timestamp = NtpTimeProvider.nowMs()
+                    val (x, y, z) = event.values
+                    // sensor type 4 for gyro
+                    val line = "4,$timestamp,${event.timestamp},$x,$y,$z\n"
+                    try {
+                        fileWriter.write(line)
+                    } catch (e: IOException) {
+                        e.printStackTrace()
+                        SocketManager.debug("File write failed: ${e.message}")
+                    }
+                }
+
+                Sensor.TYPE_MAGNETIC_FIELD -> {
+                    val timestamp = NtpTimeProvider.nowMs()
+                    val (x, y, z) = event.values
+                    val line = "2,$timestamp,${event.timestamp},$x,$y,$z\n"
+                    try {
+                        fileWriter.write(line)
+                    } catch (e: IOException) {
+                        e.printStackTrace()
+                        SocketManager.debug("File write failed: ${e.message}")
+                    }
+                }
+
+                Sensor.TYPE_HEART_RATE -> {
+                    val timestamp = NtpTimeProvider.nowMs()
+                    val heartRate = event.values[0] // Heart rate in BPM
+                    // sensor type 21 for heart rate/PPG
+                    val line = "21,$timestamp,${event.timestamp},$heartRate,0,0\n"
+                    try {
+                        fileWriter.write(line)
+
+                    } catch (e: IOException) {
+                        e.printStackTrace()
+                        SocketManager.debug("PPG file write failed: ${e.message}")
+                    }
                 }
 
 
-
             }
-
-            if(event.sensor.type == Sensor.TYPE_GYROSCOPE){
-                val timestamp = NtpTimeProvider.nowMs()
-                val (x, y, z) = event.values
-                // sensor type 4 for gyro
-                val line = "4,$timestamp,$x,$y,$z\n"
-                try {
-                    fileWriter.write(line)
-                } catch (e: IOException) {
-                    e.printStackTrace()
-                    SocketManager.debug("File write failed: ${e.message}")
-                }
-
-//                latestGyroData = event.values
-//                hasNewGyroData.set(true)
-            }
-
-            // Check if both sensors have new data
-//            if (hasNewAccelData.get() && hasNewGyroData.get()) {
-//                sendSensorData(SocketStreamEventName)
-//                hasNewAccelData.set(false)
-//                hasNewGyroData.set(false)
-//            }
         }
     }
 
-    private fun sendSensorData(eventName : String = "SensorStream") {
-
-
+    private fun sendSensorData(eventName: String = "SensorStream") {
         val timestamp = System.currentTimeMillis()
         val accelX = latestAccelData?.get(0) ?: 0f
         val accelY = latestAccelData?.get(1) ?: 0f
@@ -269,10 +311,9 @@ class SensorRecordingService : Service(), SensorEventListener {
         val gyroZ = latestGyroData?.get(2) ?: 0f
 
         val data = "$timestamp,$accelX,$accelY,$accelZ,$gyroX,$gyroY,$gyroZ"
-        SocketManager.getSocket().emit(eventName,data)
-
-
+        SocketManager.getSocket().emit(eventName, data)
     }
+
     private fun sendSensorFileToServer(file: File) {
         val client = OkHttpClient()
         val mediaType = "text/csv".toMediaType()
@@ -308,7 +349,6 @@ class SensorRecordingService : Service(), SensorEventListener {
             }
         }
     }
-
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
         // Handle accuracy changes if needed
