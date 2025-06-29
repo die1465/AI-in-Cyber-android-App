@@ -67,6 +67,10 @@ class SensorRecordingService : Service(), SensorEventListener {
     private var memoryFile: MemoryFile? = null
     private var pfd: ParcelFileDescriptor? = null
 
+    //for keeping track of how many steps the user walked
+    private var startStepCount: Int? = null
+    private var endStepCount: Int? = null
+
     private lateinit var localSocket: Socket
 
     override fun onCreate() {
@@ -107,6 +111,10 @@ class SensorRecordingService : Service(), SensorEventListener {
             }
         }.on("StopRecordingSensors") {
             if (isRecording) {
+                val timestamp = NtpTimeProvider.nowMs()
+                endStepCount?.let { end ->
+                    fileWriter.write("18,$timestamp,0,$end,0,0\n")
+                }
                 unregisterSensors()
                 isRecording = false
                 try {
@@ -149,7 +157,7 @@ class SensorRecordingService : Service(), SensorEventListener {
             }
         }
 
-        SocketManager.debug("socket event name for sensors: $_postAPIEndpoint")
+//        SocketManager.debug("socket event name for sensors: $_postAPIEndpoint")
         return START_STICKY
     }
 
@@ -199,7 +207,8 @@ class SensorRecordingService : Service(), SensorEventListener {
         val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         val gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
         val magnetometer = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
-
+        val stepDetector = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
+        val stepCounter = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
         // Add PPG sensor registration
         val ppgSensor = sensorManager.getDefaultSensor(Sensor.TYPE_HEART_RATE)
 
@@ -209,16 +218,20 @@ class SensorRecordingService : Service(), SensorEventListener {
             sensorManager.getDefaultSensor(65572) // Common vendor-specific PPG type
         } else null
 
-        if (accelerometer == null || gyroscope == null || magnetometer == null) {
+
+
+        if (accelerometer == null || gyroscope == null || magnetometer == null || stepDetector == null) {
             SocketManager.debug("Core sensors are null")
             stopSelf()
             return
         }
 
         // Register core sensors
-        sensorManager.registerListener(this, accelerometer, desiredHZ, 0)
-        sensorManager.registerListener(this, gyroscope, desiredHZ, 0)
-        sensorManager.registerListener(this, magnetometer, desiredHZ, 0)
+        sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_FASTEST, 0)
+        sensorManager.registerListener(this, gyroscope, SensorManager.SENSOR_DELAY_FASTEST, 0)
+        sensorManager.registerListener(this, magnetometer, SensorManager.SENSOR_DELAY_FASTEST, 0)
+        sensorManager.registerListener(this, stepDetector, SensorManager.SENSOR_DELAY_NORMAL, 0)
+        sensorManager.registerListener(this, stepCounter, SensorManager.SENSOR_DELAY_NORMAL, 0)
 
         // Register PPG sensor if available
         if (ppgSensor != null) {
@@ -234,7 +247,8 @@ class SensorRecordingService : Service(), SensorEventListener {
                 "\naccel ${accelerometer.minDelay}" +
                 "\ngyro ${gyroscope.minDelay}" +
                 "\nmagnetometer ${magnetometer.minDelay}" +
-                "\nppg available: ${ppgSensor != null || ppgSensorAlt != null}")
+                "\nppg available: ${ppgSensor != null || ppgSensorAlt != null}" +
+                "\nstepDetector: ${stepDetector.minDelay}, ${stepCounter?.minDelay}")
     }
 
     private fun unregisterSensors() {
@@ -296,6 +310,30 @@ class SensorRecordingService : Service(), SensorEventListener {
                     }
                 }
 
+                Sensor.TYPE_STEP_DETECTOR -> {
+                    val timestamp = NtpTimeProvider.nowMs()
+                    val steps = event.values[0] // 1.0 per step event
+                    val line = "19,$timestamp,${event.timestamp},$steps,0,0\n"
+                    try {
+                        fileWriter.write(line)
+                    } catch (e: IOException) {
+                        e.printStackTrace()
+                        SocketManager.debug("Step write failed: ${e.message}")
+                    }
+                }
+
+                Sensor.TYPE_STEP_COUNTER -> {
+                    val timestamp = NtpTimeProvider.nowMs()
+                    val count = event.values[0].toInt()
+                    if (startStepCount == null) {
+                        startStepCount = count
+                        // write a “header” CSV line, e.g.:
+                        fileWriter.write("18,$timestamp,0,$count,0,0\n")
+                    }else{
+                        endStepCount = count
+                    }
+                }
+
 
             }
         }
@@ -315,7 +353,11 @@ class SensorRecordingService : Service(), SensorEventListener {
     }
 
     private fun sendSensorFileToServer(file: File) {
-        val client = OkHttpClient()
+        val client = OkHttpClient.Builder()
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .writeTimeout(20, TimeUnit.SECONDS)
+            .build()
         val mediaType = "text/csv".toMediaType()
         val requestBody = file.asRequestBody(mediaType)
 

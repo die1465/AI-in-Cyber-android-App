@@ -113,6 +113,18 @@ class MainActivity : ComponentActivity() {
             // Request the permission
             requestPermissionLauncher.launch(android.Manifest.permission.BODY_SENSORS)
         }
+
+        if (ContextCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.ACTIVITY_RECOGNITION
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            // Permission is already granted, proceed with recording
+
+        } else {
+            // Request the permission
+            requestPermissionLauncher.launch(android.Manifest.permission.ACTIVITY_RECOGNITION)
+        }
     }
 
     override fun onDestroy() {

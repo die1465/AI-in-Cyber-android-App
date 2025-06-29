@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 object SocketManager {
     private var socket: Socket? = null
-    private val ServerIP = "192.168.183.8"
+    private val ServerIP = "192.168.135.8"
     private val ServerPort = "5001"
     private val watchServerURL = "http://$ServerIP:$ServerPort"
 
@@ -71,16 +71,6 @@ object SocketManager {
                 val message = args[0].toString()
                 println("Received message: $message")
             }
-//                .on("StartRecordingSensors") { args ->
-//                val streamName = args[0].toString()
-//                runOnMainThread {
-//                    StartRecordingSensors(context, streamName)
-//                }
-//            }.on("StopRecordingSensors") {
-//                runOnMainThread {
-//                    StopRecordingSensors(context)
-//                }
-//            }
             .on("StartRecordingLinearAcceleration") {
                 runOnMainThread {
                     if (linearAccelServiceStarted.compareAndSet(false, true)) {

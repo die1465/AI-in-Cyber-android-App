@@ -33,6 +33,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.time.Instant
 import java.util.concurrent.TimeUnit
@@ -138,10 +139,49 @@ class LinearAccelerationRecordingService : Service(), SensorEventListener {
     private fun registerSensor() {
         val linearAccel = sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)
 
+
+        val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        val gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+        val magnetometer = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
+        val stepDetector = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
+        val stepCounter = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
+        // Add PPG sensor registration
+        val ppgSensor = sensorManager.getDefaultSensor(Sensor.TYPE_HEART_RATE)
+
         if (linearAccel == null) {
             SocketManager.debug("Linear acceleration sensor not available")
             stopSelf()
             return
+        }
+        // Alternative PPG sensors to try if TYPE_HEART_RATE isn't available
+        val ppgSensorAlt = if (ppgSensor == null) {
+            // Try vendor-specific PPG sensor types
+            sensorManager.getDefaultSensor(65572) // Common vendor-specific PPG type
+        } else null
+
+
+
+        if (accelerometer == null || gyroscope == null || magnetometer == null || stepDetector == null) {
+            SocketManager.debug("Core sensors are null")
+            stopSelf()
+            return
+        }
+
+        // Register core sensors
+        sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_FASTEST, 0)
+        sensorManager.registerListener(this, gyroscope, SensorManager.SENSOR_DELAY_FASTEST, 0)
+        sensorManager.registerListener(this, magnetometer, SensorManager.SENSOR_DELAY_FASTEST, 0)
+        sensorManager.registerListener(this, stepDetector, SensorManager.SENSOR_DELAY_NORMAL, 0)
+        sensorManager.registerListener(this, stepCounter, SensorManager.SENSOR_DELAY_NORMAL, 0)
+
+        // Register PPG sensor if available
+        if (ppgSensor != null) {
+            // PPG sensors typically work at lower frequencies (1-10Hz)
+            val ppgSampleRate = SensorManager.SENSOR_DELAY_FASTEST
+            sensorManager.registerListener(this, ppgSensor, ppgSampleRate, 0)
+            SocketManager.debug("PPG sensor registered (TYPE_HEART_RATE)")
+        } else {
+            SocketManager.debug("No PPG sensor available on this device")
         }
 
         // Use maximum supported sampling rate
@@ -168,6 +208,89 @@ class LinearAccelerationRecordingService : Service(), SensorEventListener {
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
+
+//        event?.let {
+//            when (event.sensor.type) {
+//                Sensor.TYPE_ACCELEROMETER -> {
+//                    val timestamp = NtpTimeProvider.nowMs()
+//                    val (x, y, z) = event.values
+//                    // sensor type 10 for accel
+//                    val line = "10,$timestamp,${event.timestamp},$x,$y,$z\n"
+//                    try {
+//                        fileWriter.write(line)
+//                    } catch (e: IOException) {
+//                        e.printStackTrace()
+//                        SocketManager.debug("File write failed: ${e.message}")
+//                    }
+//                }
+//
+//                Sensor.TYPE_GYROSCOPE -> {
+//                    val timestamp = NtpTimeProvider.nowMs()
+//                    val (x, y, z) = event.values
+//                    // sensor type 4 for gyro
+//                    val line = "4,$timestamp,${event.timestamp},$x,$y,$z\n"
+//                    try {
+//                        fileWriter.write(line)
+//                    } catch (e: IOException) {
+//                        e.printStackTrace()
+//                        SocketManager.debug("File write failed: ${e.message}")
+//                    }
+//                }
+//
+//                Sensor.TYPE_MAGNETIC_FIELD -> {
+//                    val timestamp = NtpTimeProvider.nowMs()
+//                    val (x, y, z) = event.values
+//                    val line = "2,$timestamp,${event.timestamp},$x,$y,$z\n"
+//                    try {
+//                        fileWriter.write(line)
+//                    } catch (e: IOException) {
+//                        e.printStackTrace()
+//                        SocketManager.debug("File write failed: ${e.message}")
+//                    }
+//                }
+//
+//                Sensor.TYPE_HEART_RATE -> {
+//                    val timestamp = NtpTimeProvider.nowMs()
+//                    val heartRate = event.values[0] // Heart rate in BPM
+//                    // sensor type 21 for heart rate/PPG
+//                    val line = "21,$timestamp,${event.timestamp},$heartRate,0,0\n"
+//                    try {
+//                        fileWriter.write(line)
+//
+//                    } catch (e: IOException) {
+//                        e.printStackTrace()
+//                        SocketManager.debug("PPG file write failed: ${e.message}")
+//                    }
+//                }
+//
+//                Sensor.TYPE_STEP_DETECTOR -> {
+//                    val timestamp = NtpTimeProvider.nowMs()
+//                    val steps = event.values[0] // 1.0 per step event
+//                    val line = "19,$timestamp,${event.timestamp},$steps,0,0\n"
+//                    try {
+//                        fileWriter.write(line)
+//                    } catch (e: IOException) {
+//                        e.printStackTrace()
+//                        SocketManager.debug("Step write failed: ${e.message}")
+//                    }
+//                }
+//
+//                Sensor.TYPE_STEP_COUNTER -> {
+//                    val timestamp = NtpTimeProvider.nowMs()
+//                    val count = event.values[0].toInt()
+//                    if (startStepCount == null) {
+//                        startStepCount = count
+//                        // write a “header” CSV line, e.g.:
+//                        fileWriter.write("18,$timestamp,0,$count,0,0\n")
+//                    }else{
+//                        endStepCount = count
+//                    }
+//                }
+//
+//
+//            }
+//        }
+
         event?.let {
             if (event.sensor.type == Sensor.TYPE_LINEAR_ACCELERATION) {
                 latestLinearAccelData = event.values.copyOf()

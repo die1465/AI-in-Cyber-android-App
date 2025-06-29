@@ -441,7 +441,7 @@ class AudioRecorderService : Service() {
                 }
 
             } catch (e: Exception) {
-                debug("Upload error: ${e.message}")
+                debug("PCM Upload error: ${e.message}")
             }
         }
     }
