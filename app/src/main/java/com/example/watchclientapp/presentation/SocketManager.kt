@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 object SocketManager {
     private var socket: Socket? = null
-    private val ServerIP = "192.168.135.8"
+    private val ServerIP = "10.42.14.8"
     private val ServerPort = "5001"
     private val watchServerURL = "http://$ServerIP:$ServerPort"
 

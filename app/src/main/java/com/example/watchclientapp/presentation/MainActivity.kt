@@ -72,7 +72,7 @@ class MainActivity : ComponentActivity() {
 
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MyApp::MyWakelockTag")
-        wakeLock.acquire(60 * 60 * 1000L * 24 /*1 hour*/) // Timeout to prevent battery drain
+        wakeLock.acquire(60 * 60 * 1000L * 24 * 24 /*1 hour*/) // Timeout to prevent battery drain
 
 
             val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)

@@ -210,13 +210,13 @@ class SensorRecordingService : Service(), SensorEventListener {
         val stepDetector = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
         val stepCounter = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
         // Add PPG sensor registration
-        val ppgSensor = sensorManager.getDefaultSensor(Sensor.TYPE_HEART_RATE)
+//        val ppgSensor = sensorManager.getDefaultSensor(Sensor.TYPE_HEART_RATE)
 
         // Alternative PPG sensors to try if TYPE_HEART_RATE isn't available
-        val ppgSensorAlt = if (ppgSensor == null) {
-            // Try vendor-specific PPG sensor types
-            sensorManager.getDefaultSensor(65572) // Common vendor-specific PPG type
-        } else null
+//        val ppgSensorAlt = if (ppgSensor == null) {
+//            // Try vendor-specific PPG sensor types
+//            sensorManager.getDefaultSensor(65572) // Common vendor-specific PPG type
+//        } else null
 
 
 
@@ -234,20 +234,20 @@ class SensorRecordingService : Service(), SensorEventListener {
         sensorManager.registerListener(this, stepCounter, SensorManager.SENSOR_DELAY_NORMAL, 0)
 
         // Register PPG sensor if available
-        if (ppgSensor != null) {
-            // PPG sensors typically work at lower frequencies (1-10Hz)
-            val ppgSampleRate = SensorManager.SENSOR_DELAY_FASTEST
-            sensorManager.registerListener(this, ppgSensor, ppgSampleRate, 0)
-            SocketManager.debug("PPG sensor registered (TYPE_HEART_RATE)")
-        } else {
-            SocketManager.debug("No PPG sensor available on this device")
-        }
+//        if (ppgSensor != null) {
+//            // PPG sensors typically work at lower frequencies (1-10Hz)
+//            val ppgSampleRate = SensorManager.SENSOR_DELAY_FASTEST
+//            sensorManager.registerListener(this, ppgSensor, ppgSampleRate, 0)
+//            SocketManager.debug("PPG sensor registered (TYPE_HEART_RATE)")
+//        } else {
+//            SocketManager.debug("No PPG sensor available on this device")
+//        }
 
         SocketManager.debug("Sensors registered, sampling rates:" +
                 "\naccel ${accelerometer.minDelay}" +
                 "\ngyro ${gyroscope.minDelay}" +
                 "\nmagnetometer ${magnetometer.minDelay}" +
-                "\nppg available: ${ppgSensor != null || ppgSensorAlt != null}" +
+//                "\nppg available: ${ppgSensor != null || ppgSensorAlt != null}" +
                 "\nstepDetector: ${stepDetector.minDelay}, ${stepCounter?.minDelay}")
     }
 
@@ -296,19 +296,19 @@ class SensorRecordingService : Service(), SensorEventListener {
                     }
                 }
 
-                Sensor.TYPE_HEART_RATE -> {
-                    val timestamp = NtpTimeProvider.nowMs()
-                    val heartRate = event.values[0] // Heart rate in BPM
-                    // sensor type 21 for heart rate/PPG
-                    val line = "21,$timestamp,${event.timestamp},$heartRate,0,0\n"
-                    try {
-                        fileWriter.write(line)
-
-                    } catch (e: IOException) {
-                        e.printStackTrace()
-                        SocketManager.debug("PPG file write failed: ${e.message}")
-                    }
-                }
+//                Sensor.TYPE_HEART_RATE -> {
+//                    val timestamp = NtpTimeProvider.nowMs()
+//                    val heartRate = event.values[0] // Heart rate in BPM
+//                    // sensor type 21 for heart rate/PPG
+//                    val line = "21,$timestamp,${event.timestamp},$heartRate,0,0\n"
+//                    try {
+//                        fileWriter.write(line)
+//
+//                    } catch (e: IOException) {
+//                        e.printStackTrace()
+//                        SocketManager.debug("PPG file write failed: ${e.message}")
+//                    }
+//                }
 
                 Sensor.TYPE_STEP_DETECTOR -> {
                     val timestamp = NtpTimeProvider.nowMs()
@@ -354,9 +354,9 @@ class SensorRecordingService : Service(), SensorEventListener {
 
     private fun sendSensorFileToServer(file: File) {
         val client = OkHttpClient.Builder()
-            .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .writeTimeout(20, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.MINUTES)
+            .readTimeout(10, TimeUnit.MINUTES)
+            .writeTimeout(10, TimeUnit.MINUTES)
             .build()
         val mediaType = "text/csv".toMediaType()
         val requestBody = file.asRequestBody(mediaType)

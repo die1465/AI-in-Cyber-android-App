@@ -146,7 +146,7 @@ class LinearAccelerationRecordingService : Service(), SensorEventListener {
         val stepDetector = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
         val stepCounter = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
         // Add PPG sensor registration
-        val ppgSensor = sensorManager.getDefaultSensor(Sensor.TYPE_HEART_RATE)
+//        val ppgSensor = sensorManager.getDefaultSensor(Sensor.TYPE_HEART_RATE)
 
         if (linearAccel == null) {
             SocketManager.debug("Linear acceleration sensor not available")
@@ -154,10 +154,10 @@ class LinearAccelerationRecordingService : Service(), SensorEventListener {
             return
         }
         // Alternative PPG sensors to try if TYPE_HEART_RATE isn't available
-        val ppgSensorAlt = if (ppgSensor == null) {
-            // Try vendor-specific PPG sensor types
-            sensorManager.getDefaultSensor(65572) // Common vendor-specific PPG type
-        } else null
+//        val ppgSensorAlt = if (ppgSensor == null) {
+//            // Try vendor-specific PPG sensor types
+//            sensorManager.getDefaultSensor(65572) // Common vendor-specific PPG type
+//        } else null
 
 
 
@@ -175,14 +175,14 @@ class LinearAccelerationRecordingService : Service(), SensorEventListener {
         sensorManager.registerListener(this, stepCounter, SensorManager.SENSOR_DELAY_NORMAL, 0)
 
         // Register PPG sensor if available
-        if (ppgSensor != null) {
-            // PPG sensors typically work at lower frequencies (1-10Hz)
-            val ppgSampleRate = SensorManager.SENSOR_DELAY_FASTEST
-            sensorManager.registerListener(this, ppgSensor, ppgSampleRate, 0)
-            SocketManager.debug("PPG sensor registered (TYPE_HEART_RATE)")
-        } else {
-            SocketManager.debug("No PPG sensor available on this device")
-        }
+//        if (ppgSensor != null) {
+//            // PPG sensors typically work at lower frequencies (1-10Hz)
+//            val ppgSampleRate = SensorManager.SENSOR_DELAY_FASTEST
+//            sensorManager.registerListener(this, ppgSensor, ppgSampleRate, 0)
+//            SocketManager.debug("PPG sensor registered (TYPE_HEART_RATE)")
+//        } else {
+//            SocketManager.debug("No PPG sensor available on this device")
+//        }
 
         // Use maximum supported sampling rate
         val minDelayMicros = linearAccel.minDelay
@@ -307,6 +307,8 @@ class LinearAccelerationRecordingService : Service(), SensorEventListener {
             SocketManager.getSocket().emit("LinearAccelStream", formattedData)
             hasNewLinearAccelData.set(false)
         }
+
+
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {

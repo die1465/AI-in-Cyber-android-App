@@ -83,9 +83,9 @@ class AudioRecorderService : Service() {
     private var pcmOut: FileOutputStream? = null
 
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .writeTimeout(20, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.MINUTES)
+        .readTimeout(10, TimeUnit.MINUTES)
+        .writeTimeout(10, TimeUnit.MINUTES)
         .build()
     private val _NTPHost = "time.google.com"
     private lateinit var localSocket: Socket
